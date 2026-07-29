@@ -8,6 +8,9 @@ export interface Client {
   phone: string
   address: string
   notes: string
+  /** Optional per-service rate overrides, keyed by serviceId. Falls back to the
+   *  service's default rate when a service isn't listed here. */
+  rates: Record<string, number>
   archived: boolean
   createdAt: number
 }
@@ -52,6 +55,13 @@ export interface TimeEntry {
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid'
 
+/** A non-time charge on an invoice (materials, dump fees, flat charges). */
+export interface Expense {
+  id: string
+  label: string
+  amount: number
+}
+
 export interface Invoice {
   id: string
   clientId: string
@@ -59,9 +69,20 @@ export interface Invoice {
   issuedDate: string // YYYY-MM-DD
   periodStart: string // YYYY-MM-DD
   periodEnd: string // YYYY-MM-DD
-  /** Entries frozen onto this invoice. */
+  /** Entries frozen onto this invoice (kept for reference / un-billing). */
   entryIds: string[]
+  /**
+   * The labor breakdown FROZEN at creation. An invoice is an immutable record —
+   * editing/deleting the underlying entries later must never change what a sent
+   * invoice says. Legacy invoices created before this field re-derive from live
+   * entries (handled in InvoiceDetail).
+   */
+  snapshot: Breakdown | null
+  /** Non-time charges (materials, dump fees). Editable while unpaid. */
+  expenses: Expense[]
   status: InvoiceStatus
+  /** Set to today's date when first marked paid; cleared if un-paid. */
+  paidDate: string | null
   notes: string
   createdAt: number
 }

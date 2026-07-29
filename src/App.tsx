@@ -3,18 +3,23 @@ import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabaseClient'
 import {
   emptyState, loadLocal, saveLocal, saveRemote, loadRemote, getLocalUpdatedAt,
-  makeClient, makeService, makeEntry, todayISO,
+  makeClient, makeService, makeEntry, todayISO, buildBreakdown, formatClock, liveSeconds,
 } from './store'
 import type {
   Client, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
 } from './types'
+import { useNow } from './useNow'
 import { Chrome, type View } from './Chrome'
 import { TimerView } from './views/TimerView'
 import { ClientsView } from './views/ClientsView'
 import { ServicesView } from './views/ServicesView'
 import { LogView } from './views/LogView'
 import { InvoicesView } from './views/InvoicesView'
+import { ReportsView } from './views/ReportsView'
 import { SettingsView } from './views/SettingsView'
+
+/** Warn if a timer's been running longer than this (forgot-to-stop). */
+const RUNAWAY_SECONDS = 8 * 3600
 
 const REMOTE_SAVE_DELAY = 4000
 
@@ -49,6 +54,31 @@ export default function App() {
         saveLocal(remote.state)
       }
     })
+  }, [user])
+
+  // Re-pull when the tab regains focus, so a stale laptop tab adopts newer work
+  // from the PC instead of clobbering it. Skipped while we have unsynced local
+  // edits pending (our own debounced save will push those first).
+  useEffect(() => {
+    if (!user) return
+    const pull = async () => {
+      if (document.visibilityState === 'hidden' || needsRemoteSave.current) return
+      const remote = await loadRemote(supabase)
+      if (!remote) return
+      const localUpdatedAt = getLocalUpdatedAt()
+      if (!localUpdatedAt || remote.updatedAt > localUpdatedAt) {
+        setStateRaw(remote.state)
+        saveLocal(remote.state)
+        setCloudStatus('saved')
+        setTimeout(() => setCloudStatus('idle'), 1600)
+      }
+    }
+    window.addEventListener('focus', pull)
+    document.addEventListener('visibilitychange', pull)
+    return () => {
+      window.removeEventListener('focus', pull)
+      document.removeEventListener('visibilitychange', pull)
+    }
   }, [user])
 
   const login = useCallback(() => {
@@ -118,11 +148,21 @@ export default function App() {
   }, [mutate])
 
   // ---- Entry actions ----
+  // Entries on an invoice are frozen — block edits/deletes so a sent invoice's
+  // numbers can never drift. (UI hides the buttons too; this is the guarantee.)
   const updateEntry = useCallback((entry: TimeEntry) => {
-    mutate(s => ({ ...s, entries: s.entries.map(e => e.id === entry.id ? entry : e) }))
+    mutate(s => {
+      const existing = s.entries.find(e => e.id === entry.id)
+      if (!existing || existing.invoiceId) return s
+      return { ...s, entries: s.entries.map(e => e.id === entry.id ? entry : e) }
+    })
   }, [mutate])
   const deleteEntry = useCallback((id: string) => {
-    mutate(s => ({ ...s, entries: s.entries.filter(e => e.id !== id) }))
+    mutate(s => {
+      const existing = s.entries.find(e => e.id === id)
+      if (!existing || existing.invoiceId) return s
+      return { ...s, entries: s.entries.filter(e => e.id !== id) }
+    })
   }, [mutate])
   const addManualEntry = useCallback((
     serviceId: string, clientId: string | null, date: string, seconds: number, rate: number, note: string,
@@ -160,23 +200,36 @@ export default function App() {
   const createInvoice = useCallback((
     clientId: string, entryIds: string[], periodStart: string, periodEnd: string,
   ): Invoice => {
-    const num = `INV-${String(state.settings.invoiceCounter).padStart(4, '0')}`
-    const invoice: Invoice = {
-      id: crypto.randomUUID(), clientId, number: num, issuedDate: todayISO(),
-      periodStart, periodEnd, entryIds: [...entryIds], status: 'draft', notes: '',
-      createdAt: Date.now(),
-    }
-    mutate(s => ({
-      ...s,
-      invoices: [...s.invoices, invoice],
-      entries: s.entries.map(e => entryIds.includes(e.id) ? { ...e, invoiceId: invoice.id } : e),
-      settings: { ...s.settings, invoiceCounter: s.settings.invoiceCounter + 1 },
-    }))
-    return invoice
-  }, [mutate, state.settings.invoiceCounter])
+    const id = crypto.randomUUID()
+    let created: Invoice | null = null
+    mutate(s => {
+      const num = `INV-${String(s.settings.invoiceCounter).padStart(4, '0')}`
+      // Freeze the labor breakdown NOW so later entry edits can't rewrite it.
+      const chosen = s.entries.filter(e => entryIds.includes(e.id))
+      const snapshot = buildBreakdown(chosen, s.services)
+      const invoice: Invoice = {
+        id, clientId, number: num, issuedDate: todayISO(),
+        periodStart, periodEnd, entryIds: [...entryIds], snapshot,
+        expenses: [], status: 'draft', paidDate: null, notes: '', createdAt: Date.now(),
+      }
+      created = invoice
+      return {
+        ...s,
+        invoices: [...s.invoices, invoice],
+        entries: s.entries.map(e => entryIds.includes(e.id) ? { ...e, invoiceId: invoice.id } : e),
+        settings: { ...s.settings, invoiceCounter: s.settings.invoiceCounter + 1 },
+      }
+    })
+    return created!
+  }, [mutate])
 
   const setInvoiceStatus = useCallback((id: string, status: InvoiceStatus) => {
-    mutate(s => ({ ...s, invoices: s.invoices.map(i => i.id === id ? { ...i, status } : i) }))
+    mutate(s => ({
+      ...s,
+      invoices: s.invoices.map(i => i.id === id
+        ? { ...i, status, paidDate: status === 'paid' ? (i.paidDate ?? todayISO()) : null }
+        : i),
+    }))
   }, [mutate])
   const updateInvoice = useCallback((invoice: Invoice) => {
     mutate(s => ({ ...s, invoices: s.invoices.map(i => i.id === invoice.id ? invoice : i) }))
@@ -198,7 +251,24 @@ export default function App() {
     mutate(() => emptyState())
   }, [mutate])
 
-  const anyRunning = useMemo(() => state.entries.some(e => e.runningSince), [state.entries])
+  const importData = useCallback((imported: TractionState) => {
+    mutate(() => imported)
+  }, [mutate])
+
+  const runningEntry = useMemo(() => state.entries.find(e => e.runningSince) ?? null, [state.entries])
+  const nowTick = useNow(!!runningEntry)
+
+  // Live elapsed time in the browser tab title, so a forgotten timer is obvious.
+  useEffect(() => {
+    document.title = runningEntry
+      ? `▶ ${formatClock(liveSeconds(runningEntry, nowTick))} · traction`
+      : 'traction'
+  }, [runningEntry, nowTick])
+
+  // Forgot-to-stop nudge once a timer crosses the runaway threshold.
+  const [runawayDismissed, setRunawayDismissed] = useState<string | null>(null)
+  const runningSecs = runningEntry ? liveSeconds(runningEntry, nowTick) : 0
+  const showRunaway = !!runningEntry && runningSecs > RUNAWAY_SECONDS && runawayDismissed !== runningEntry.id
 
   return (
     <div className="app">
@@ -209,8 +279,18 @@ export default function App() {
         onLogin={login}
         onLogout={logout}
         cloudStatus={cloudStatus}
-        running={anyRunning}
+        running={!!runningEntry}
       />
+
+      {showRunaway && runningEntry && (
+        <div className="runaway-nudge" role="status">
+          <span>⏱️ A timer's been running <strong>{formatClock(runningSecs)}</strong> — still on the clock?</span>
+          <div className="runaway-actions">
+            <button className="btn danger" onClick={() => stopTimer(runningEntry.id)}>■ Stop it</button>
+            <button className="btn ghost" onClick={() => setRunawayDismissed(runningEntry.id)}>Keep going</button>
+          </div>
+        </div>
+      )}
 
       <main className="content">
         {view === 'timer' && (
@@ -258,11 +338,13 @@ export default function App() {
             onDelete={deleteInvoice}
           />
         )}
+        {view === 'reports' && <ReportsView state={state} />}
         {view === 'settings' && (
           <SettingsView
             state={state}
             onUpdate={updateSettings}
             onReset={resetAll}
+            onImport={importData}
           />
         )}
       </main>

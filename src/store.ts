@@ -4,6 +4,7 @@ import type {
   BreakdownDay,
   BreakdownLine,
   Client,
+  Invoice,
   Service,
   Settings,
   TimeEntry,
@@ -47,8 +48,17 @@ export function emptyState(): TractionState {
 export function makeClient(name: string): Client {
   return {
     id: genId(), name, email: '', phone: '', address: '', notes: '',
-    archived: false, createdAt: Date.now(),
+    rates: {}, archived: false, createdAt: Date.now(),
   }
+}
+
+/** Rate to bill a service at for a given client: per-client override → service default. */
+export function resolveRate(
+  service: Service | undefined,
+  client: Client | null | undefined,
+): number {
+  if (service && client && client.rates?.[service.id] != null) return client.rates[service.id]
+  return service?.defaultRate ?? 0
 }
 
 export function makeService(name: string, defaultRate: number): Service {
@@ -126,6 +136,26 @@ export function lineAmount(seconds: number, rate: number): number {
   return Math.round((seconds / 3600) * rate * 100) / 100
 }
 
+/** Sum of an invoice's non-time charges. */
+export function expensesTotal(invoice: Pick<Invoice, 'expenses'>): number {
+  return Math.round((invoice.expenses ?? []).reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100
+}
+
+/**
+ * An invoice's grand total = frozen labor + expenses. Uses the snapshot when
+ * present (immutable record); falls back to live entries for legacy invoices.
+ */
+export function invoiceTotal(
+  invoice: Pick<Invoice, 'snapshot' | 'expenses' | 'entryIds'>,
+  entries: TimeEntry[],
+): number {
+  const labor = invoice.snapshot
+    ? invoice.snapshot.total
+    : entries.filter(e => invoice.entryIds.includes(e.id))
+        .reduce((s, e) => s + lineAmount(e.seconds, e.rate), 0)
+  return Math.round((labor + expensesTotal(invoice)) * 100) / 100
+}
+
 // ---- Invoice breakdown ---------------------------------------------------
 
 /**
@@ -195,11 +225,22 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
 /** Fill any missing fields so older/partial saved blobs hydrate safely. */
 export function hydrateState(raw: unknown): TractionState {
   const r = (raw ?? {}) as Partial<TractionState>
+  const clients = (Array.isArray(r.clients) ? r.clients : []).map((c): Client => ({
+    ...c,
+    rates: c.rates && typeof c.rates === 'object' ? c.rates : {},
+  }))
+  const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => ({
+    ...i,
+    // Older invoices predate frozen snapshots — leave null so they re-derive live.
+    snapshot: i.snapshot ?? null,
+    expenses: Array.isArray(i.expenses) ? i.expenses : [],
+    paidDate: i.paidDate ?? null,
+  }))
   return {
-    clients: Array.isArray(r.clients) ? r.clients : [],
+    clients,
     services: Array.isArray(r.services) ? r.services : [],
     entries: Array.isArray(r.entries) ? r.entries : [],
-    invoices: Array.isArray(r.invoices) ? r.invoices : [],
+    invoices,
     settings: { ...defaultSettings(), ...(r.settings ?? {}) },
   }
 }
@@ -248,4 +289,67 @@ export async function loadRemote(
     .maybeSingle()
   if (error || !data) return null
   return { state: hydrateState(data.state_json), updatedAt: data.updated_at }
+}
+
+// ---- Export / import -----------------------------------------------------
+
+/** The whole state as a pretty JSON backup string. */
+export function serializeBackup(state: TractionState): string {
+  return JSON.stringify({ app: 'traction', version: 1, exportedAt: new Date().toISOString(), state }, null, 2)
+}
+
+/** Parse a backup file back into state, or throw if it isn't one. */
+export function parseBackup(text: string): TractionState {
+  const parsed = JSON.parse(text)
+  const state = parsed?.state ?? parsed
+  if (!state || typeof state !== 'object' || !Array.isArray(state.entries)) {
+    throw new Error('Not a traction backup file.')
+  }
+  return hydrateState(state)
+}
+
+function csvCell(value: string | number): string {
+  const s = String(value)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** All time entries as a CSV (one row per entry) for taxes / accountant. */
+export function entriesToCSV(state: TractionState): string {
+  const svc = (id: string) => state.services.find(s => s.id === id)?.name ?? 'Unknown'
+  const cli = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? 'Unknown') : 'General'
+  const invNum = (id: string | null) => id ? (state.invoices.find(i => i.id === id)?.number ?? '') : ''
+  const header = ['Date', 'Client', 'Service', 'Note', 'Hours', 'Rate', 'Amount', 'Invoice']
+  const rows = [...state.entries]
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt))
+    .map(e => [
+      e.date, cli(e.clientId), svc(e.serviceId), e.note,
+      decimalHours(e.seconds), e.rate, lineAmount(e.seconds, e.rate), invNum(e.invoiceId),
+    ].map(csvCell).join(','))
+  return [header.join(','), ...rows].join('\r\n')
+}
+
+// ---- Reporting date helpers ----------------------------------------------
+
+/** ISO date of the Monday on or before `iso` (weeks start Monday). */
+export function weekStartISO(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  const dow = (date.getDay() + 6) % 7 // 0 = Monday
+  date.setDate(date.getDate() - dow)
+  return todayISO(date)
+}
+
+/** 'YYYY-MM' month bucket for a 'YYYY-MM-DD' date. */
+export function monthKey(iso: string): string {
+  return iso.slice(0, 7)
+}
+
+/** Pretty label for a period key given the granularity. */
+export function periodLabel(key: string, granularity: 'day' | 'week' | 'month'): string {
+  if (granularity === 'month') {
+    const [y, m] = key.split('-').map(Number)
+    return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+  }
+  if (granularity === 'week') return `wk ${formatDate(key).replace(/,.*$/, '')}`
+  return formatDate(key).replace(/,.*$/, '')
 }

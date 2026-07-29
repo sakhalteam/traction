@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Client, TractionState } from '../types'
+import type { Client, Service, TractionState } from '../types'
 import { formatDuration, formatMoney, liveSeconds, lineAmount } from '../store'
 
 export function ClientsView({
@@ -53,6 +53,8 @@ export function ClientsView({
                 {isEditing ? (
                   <ClientEditor
                     client={c}
+                    services={state.services.filter(s => !s.archived)}
+                    currency={state.settings.currency}
                     onSave={updated => { onUpdate(updated); setEditingId(null) }}
                     onCancel={() => setEditingId(null)}
                     onDelete={() => { onDelete(c.id); setEditingId(null) }}
@@ -89,16 +91,30 @@ export function ClientsView({
 }
 
 function ClientEditor({
-  client, onSave, onCancel, onDelete,
+  client, services, currency, onSave, onCancel, onDelete,
 }: {
   client: Client
+  services: Service[]
+  currency: string
   onSave: (c: Client) => void
   onCancel: () => void
   onDelete: () => void
 }) {
   const [c, setC] = useState(client)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [showRates, setShowRates] = useState(false)
   const set = (patch: Partial<Client>) => setC(prev => ({ ...prev, ...patch }))
+
+  const setRate = (serviceId: string, value: string) => {
+    setC(prev => {
+      const rates = { ...prev.rates }
+      if (value === '') delete rates[serviceId]
+      else rates[serviceId] = Number(value) || 0
+      return { ...prev, rates }
+    })
+  }
+
+  const overrideCount = Object.keys(c.rates).length
 
   return (
     <div className="client-editor">
@@ -114,6 +130,31 @@ function ClientEditor({
         <input value={c.address} onChange={e => set({ address: e.target.value })} /></label>
       <label className="field"><span>Notes</span>
         <textarea value={c.notes} rows={2} onChange={e => set({ notes: e.target.value })} /></label>
+
+      {services.length > 0 && (
+        <div className="rate-overrides">
+          <button type="button" className="rate-toggle" onClick={() => setShowRates(v => !v)}>
+            {showRates ? '▾' : '▸'} Custom rates for this client
+            {overrideCount > 0 && <span className="rate-badge">{overrideCount}</span>}
+          </button>
+          {showRates && (
+            <div className="rate-list">
+              {services.map(s => (
+                <div key={s.id} className="rate-override-row">
+                  <span className="entry-swatch" style={{ background: s.color }} />
+                  <span className="rate-svc-name">{s.name}</span>
+                  <input type="number" min="0" className="narrow"
+                    placeholder={`${currency}${s.defaultRate}`}
+                    value={c.rates[s.id] ?? ''}
+                    onChange={e => setRate(s.id, e.target.value)} />
+                </div>
+              ))}
+              <p className="hint tiny">Blank = use the service default. Overrides apply to new entries only.</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="editor-actions">
         <button className="btn primary" onClick={() => onSave(c)}>Save</button>
         <button className="btn ghost" onClick={onCancel}>Cancel</button>

@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useState } from 'react'
-import type { Invoice, InvoiceStatus, TractionState } from '../types'
-import { buildBreakdown, formatDate, formatDuration, formatMoney } from '../store'
+import type { Expense, Invoice, InvoiceStatus, TractionState } from '../types'
+import {
+  buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney, genId,
+} from '../store'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
@@ -17,12 +19,19 @@ export function InvoiceDetail({
   const [confirmDel, setConfirmDel] = useState(false)
   const client = state.clients.find(c => c.id === invoice.clientId)
   const settings = state.settings
+  const locked = invoice.status === 'paid'
 
-  const entries = useMemo(
-    () => state.entries.filter(e => invoice.entryIds.includes(e.id)),
-    [state.entries, invoice.entryIds],
-  )
-  const breakdown = useMemo(() => buildBreakdown(entries, state.services), [entries, state.services])
+  // Prefer the FROZEN snapshot; legacy invoices (pre-snapshot) re-derive live.
+  const breakdown = useMemo(() => {
+    if (invoice.snapshot) return invoice.snapshot
+    const entries = state.entries.filter(e => invoice.entryIds.includes(e.id))
+    return buildBreakdown(entries, state.services)
+  }, [invoice.snapshot, invoice.entryIds, state.entries, state.services])
+
+  const expTotal = expensesTotal(invoice)
+  const grand = Math.round((breakdown.total + expTotal) * 100) / 100
+
+  const setExpenses = (expenses: Expense[]) => onUpdate({ ...invoice, expenses })
 
   return (
     <div className="view invoice-detail">
@@ -41,6 +50,10 @@ export function InvoiceDetail({
           : <button className="btn danger ghost" onClick={() => setConfirmDel(true)}>Delete</button>}
       </div>
 
+      {!invoice.snapshot && (
+        <p className="hint tiny no-print">Legacy invoice — totals still reflect live entries.</p>
+      )}
+
       <div className="invoice-sheet">
         <div className="invoice-top">
           <div className="invoice-from">
@@ -53,6 +66,7 @@ export function InvoiceDetail({
             <div className="inv-numline">{invoice.number}</div>
             <div className="dim">Issued {formatDate(invoice.issuedDate)}</div>
             <div className="dim">Period {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}</div>
+            {invoice.paidDate && <div className="dim">Paid {formatDate(invoice.paidDate)}</div>}
             <div className={`status-pill ${invoice.status} big-status`}>{invoice.status}</div>
           </div>
         </div>
@@ -97,19 +111,83 @@ export function InvoiceDetail({
                 </tr>
               </Fragment>
             ))}
+
+            {invoice.expenses.length > 0 && (
+              <>
+                <tr className="section-row"><td colSpan={5}>Materials &amp; charges</td></tr>
+                {invoice.expenses.map(x => (
+                  <tr key={x.id}>
+                    <td />
+                    <td>{x.label || 'Charge'}</td>
+                    <td className="num" /><td className="num" />
+                    <td className="num">{formatMoney(x.amount || 0, settings.currency)}</td>
+                  </tr>
+                ))}
+              </>
+            )}
           </tbody>
           <tfoot>
+            {expTotal > 0 && (
+              <>
+                <tr className="foot-sub">
+                  <td colSpan={4} className="dim">Labor</td>
+                  <td className="num">{formatMoney(breakdown.total, settings.currency)}</td>
+                </tr>
+                <tr className="foot-sub">
+                  <td colSpan={4} className="dim">Materials &amp; charges</td>
+                  <td className="num">{formatMoney(expTotal, settings.currency)}</td>
+                </tr>
+              </>
+            )}
             <tr className="grand-total">
               <td colSpan={2}>Total</td>
               <td className="num">{formatDuration(breakdown.totalSeconds)}</td>
               <td />
-              <td className="num">{formatMoney(breakdown.total, settings.currency)}</td>
+              <td className="num">{formatMoney(grand, settings.currency)}</td>
             </tr>
           </tfoot>
         </table>
 
+        <ExpensesEditor
+          expenses={invoice.expenses}
+          currency={settings.currency}
+          locked={locked}
+          onChange={setExpenses}
+        />
+
         <InvoiceNotes invoice={invoice} onUpdate={onUpdate} />
       </div>
+    </div>
+  )
+}
+
+function ExpensesEditor({
+  expenses, currency, locked, onChange,
+}: {
+  expenses: Expense[]
+  currency: string
+  locked: boolean
+  onChange: (x: Expense[]) => void
+}) {
+  if (locked) return null
+  const update = (id: string, patch: Partial<Expense>) =>
+    onChange(expenses.map(x => x.id === id ? { ...x, ...patch } : x))
+  const add = () => onChange([...expenses, { id: genId(), label: '', amount: 0 }])
+  const remove = (id: string) => onChange(expenses.filter(x => x.id !== id))
+
+  return (
+    <div className="invoice-expenses no-print">
+      <span className="label">Materials &amp; charges ({currency})</span>
+      {expenses.map(x => (
+        <div key={x.id} className="expense-row">
+          <input placeholder="e.g. Mulch, dump fee" value={x.label}
+            onChange={e => update(x.id, { label: e.target.value })} />
+          <input className="narrow" type="number" min="0" step="0.01" placeholder="0.00"
+            value={x.amount || ''} onChange={e => update(x.id, { amount: Number(e.target.value) || 0 })} />
+          <button className="icon-btn danger" title="Remove" onClick={() => remove(x.id)}>✕</button>
+        </div>
+      ))}
+      <button className="btn" onClick={add}>+ Add charge</button>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
-import { buildBreakdown, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, todayISO } from '../store'
+import { buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, lineAmount, todayISO } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 
 export function InvoicesView({
@@ -137,24 +137,54 @@ function InvoiceBuilder({
 
 function InvoiceList({ state, onOpen }: { state: TractionState; onOpen: (id: string) => void }) {
   const invoices = [...state.invoices].sort((a, b) => b.createdAt - a.createdAt)
+  const cur = state.settings.currency
+
+  // Accounts receivable: sent-but-unpaid = money owed; draft = not yet billed out.
+  const ar = useMemo(() => {
+    let outstanding = 0, drafted = 0, paid = 0
+    for (const inv of state.invoices) {
+      const t = invoiceTotal(inv, state.entries)
+      if (inv.status === 'sent') outstanding += t
+      else if (inv.status === 'draft') drafted += t
+      else if (inv.status === 'paid') paid += t
+    }
+    return { outstanding, drafted, paid }
+  }, [state.invoices, state.entries])
+
   if (invoices.length === 0) {
     return <p className="hint">No invoices yet.</p>
   }
   return (
     <div className="panel">
+      <div className="ar-summary">
+        <div className="ar-tile owed">
+          <span className="ar-label">Owed to you</span>
+          <span className="ar-value">{formatMoney(ar.outstanding, cur)}</span>
+          <span className="ar-sub">sent, unpaid</span>
+        </div>
+        <div className="ar-tile">
+          <span className="ar-label">Draft</span>
+          <span className="ar-value">{formatMoney(ar.drafted, cur)}</span>
+          <span className="ar-sub">not sent yet</span>
+        </div>
+        <div className="ar-tile">
+          <span className="ar-label">Collected</span>
+          <span className="ar-value">{formatMoney(ar.paid, cur)}</span>
+          <span className="ar-sub">paid</span>
+        </div>
+      </div>
       <h3>Invoices</h3>
       <ul className="invoice-list">
         {invoices.map(inv => {
           const client = state.clients.find(c => c.id === inv.clientId)
-          const entries = state.entries.filter(e => inv.entryIds.includes(e.id))
-          const total = entries.reduce((s, e) => s + lineAmount(e.seconds, e.rate), 0)
+          const total = invoiceTotal(inv, state.entries)
           return (
             <li key={inv.id} className="invoice-row" onClick={() => onOpen(inv.id)}>
               <span className="inv-num">{inv.number}</span>
               <span className="inv-client">{client?.name ?? 'Unknown'}</span>
               <span className="dim inv-date">{formatDate(inv.issuedDate)}</span>
               <span className={`status-pill ${inv.status}`}>{inv.status}</span>
-              <span className="inv-total">{formatMoney(total, state.settings.currency)}</span>
+              <span className="inv-total">{formatMoney(total, cur)}</span>
             </li>
           )
         })}

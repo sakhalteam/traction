@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Client, Service, TimeEntry, TractionState } from '../types'
 import {
-  formatClock, formatDuration, formatMoney, liveSeconds, lineAmount, todayISO,
+  formatClock, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
 } from '../store'
 import { useNow } from '../useNow'
 import { EntryRow } from './EntryRow'
@@ -33,7 +33,9 @@ export function TimerView({
   const [newClient, setNewClient] = useState('')
 
   const selectedService = services.find(s => s.id === serviceId)
-  const effectiveRate = rate !== '' ? Number(rate) : (selectedService?.defaultRate ?? 0)
+  const selectedClient = clientId ? (clients.find(c => c.id === clientId) ?? null) : null
+  const resolvedRate = resolveRate(selectedService, selectedClient)
+  const effectiveRate = rate !== '' ? Number(rate) : resolvedRate
 
   const today = todayISO()
   const todayEntries = useMemo(
@@ -47,10 +49,37 @@ export function TimerView({
 
   const clientName = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? null) : null
 
+  // Recent distinct service+client combos, for one-tap resume.
+  const recentJobs = useMemo(() => {
+    const seen = new Set<string>()
+    const out: { serviceId: string; clientId: string | null; label: string; color: string }[] = []
+    for (const e of [...state.entries].sort((a, b) => b.createdAt - a.createdAt)) {
+      const key = `${e.serviceId}::${e.clientId ?? ''}`
+      if (seen.has(key)) continue
+      const svc = services.find(s => s.id === e.serviceId)
+      if (!svc) continue
+      seen.add(key)
+      const cName = clientName(e.clientId)
+      out.push({
+        serviceId: e.serviceId, clientId: e.clientId, color: svc.color,
+        label: cName ? `${svc.name} · ${cName}` : svc.name,
+      })
+      if (out.length >= 6) break
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.entries, services, state.clients])
+
   function handleStart() {
     if (!serviceId) return
     onStart(serviceId, clientId || null, effectiveRate, note.trim())
     setNote('')
+  }
+
+  function resume(job: { serviceId: string; clientId: string | null }) {
+    const svc = services.find(s => s.id === job.serviceId)
+    const cli = job.clientId ? (clients.find(c => c.id === job.clientId) ?? null) : null
+    onStart(job.serviceId, job.clientId, resolveRate(svc, cli), '')
   }
 
   function handleAddService() {
@@ -84,6 +113,18 @@ export function TimerView({
       ) : (
         <div className="panel start-panel">
           <h2>Track time</h2>
+          {recentJobs.length > 0 && (
+            <div className="resume-chips">
+              <span className="quick-label">Resume</span>
+              {recentJobs.map(j => (
+                <button key={`${j.serviceId}-${j.clientId ?? 'gen'}`} className="chip"
+                  onClick={() => resume(j)} title="Start this again">
+                  <span className="chip-dot" style={{ background: j.color }} />
+                  {j.label}
+                </button>
+              ))}
+            </div>
+          )}
           {services.length === 0 ? (
             <p className="hint">Add a service below to start your first timer.</p>
           ) : (
@@ -109,7 +150,7 @@ export function TimerView({
                   <span>Rate /hr</span>
                   <input
                     type="number" min="0" step="1" inputMode="decimal"
-                    placeholder={String(selectedService?.defaultRate ?? 0)}
+                    placeholder={String(resolvedRate)}
                     value={rate}
                     onChange={e => setRate(e.target.value)}
                   />

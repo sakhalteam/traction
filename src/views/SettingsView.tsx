@@ -1,17 +1,47 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Settings, TractionState } from '../types'
+import { entriesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
+
+function download(filename: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export function SettingsView({
-  state, onUpdate, onReset,
+  state, onUpdate, onReset, onImport,
 }: {
   state: TractionState
   onUpdate: (s: Settings) => void
   onReset: () => void
+  onImport: (state: TractionState) => void
 }) {
   const [s, setS] = useState(state.settings)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const set = (patch: Partial<Settings>) => setS(prev => ({ ...prev, ...patch }))
   const dirty = JSON.stringify(s) !== JSON.stringify(state.settings)
+
+  function exportCSV() {
+    download(`traction-time-${todayISO()}.csv`, entriesToCSV(state), 'text/csv')
+  }
+  function exportJSON() {
+    download(`traction-backup-${todayISO()}.json`, serializeBackup(state), 'application/json')
+  }
+  async function importFile(file: File) {
+    try {
+      const imported = parseBackup(await file.text())
+      onImport(imported)
+      setImportMsg({ ok: true, text: 'Backup restored.' })
+    } catch (err) {
+      setImportMsg({ ok: false, text: err instanceof Error ? err.message : 'Could not read that file.' })
+    }
+    if (fileRef.current) fileRef.current.value = ''
+  }
 
   return (
     <div className="view">
@@ -39,6 +69,22 @@ export function SettingsView({
         <button className="btn primary" disabled={!dirty} onClick={() => onUpdate(s)}>
           {dirty ? 'Save changes' : 'Saved'}
         </button>
+      </div>
+
+      <div className="panel">
+        <h3>Data &amp; backup</h3>
+        <p className="hint">Export for taxes/your accountant, or keep a backup you can restore on any machine.</p>
+        <div className="quick-row">
+          <button className="btn" onClick={exportCSV}>⬇ Time entries (CSV)</button>
+          <button className="btn" onClick={exportJSON}>⬇ Full backup (JSON)</button>
+          <button className="btn" onClick={() => fileRef.current?.click()}>⬆ Restore backup…</button>
+          <input ref={fileRef} type="file" accept="application/json,.json" hidden
+            onChange={e => { const f = e.target.files?.[0]; if (f) importFile(f) }} />
+        </div>
+        {importMsg && (
+          <p className={`hint tiny ${importMsg.ok ? 'ok' : 'err'}`}>{importMsg.text}</p>
+        )}
+        <p className="hint tiny">Restoring replaces everything currently in traction with the backup's contents.</p>
       </div>
 
       <div className="panel danger-zone">

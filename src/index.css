@@ -332,6 +332,133 @@ textarea { resize: vertical; }
   .invoice-meta { text-align: left; }
 }
 
+/* ===== Runaway timer nudge ===== */
+.runaway-nudge {
+  max-width: 940px; width: calc(100% - 40px); margin: 12px auto 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px; border-radius: var(--radius-sm);
+  background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.4);
+  color: #fecdd3; font-size: 0.9rem;
+}
+.runaway-actions { display: flex; gap: 8px; }
+.runaway-actions .btn { width: auto; }
+
+/* ===== Resume chips ===== */
+.resume-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(148, 163, 184, 0.1); border: 1px solid var(--border);
+  color: var(--text); padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  font-size: 0.82rem; font-family: inherit; transition: background 0.15s, border-color 0.15s;
+}
+.chip:hover { background: rgba(148, 163, 184, 0.18); border-color: var(--border-strong); }
+.chip-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+/* ===== Per-client rate overrides ===== */
+.rate-overrides { border-top: 1px dashed var(--border); padding-top: 10px; }
+.rate-toggle {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 0.82rem; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; padding: 0;
+}
+.rate-toggle:hover { color: var(--text); }
+.rate-badge { background: rgba(34, 197, 94, 0.16); color: var(--accent); border-radius: 999px; padding: 0 7px; font-size: 0.72rem; }
+.rate-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rate-override-row { display: flex; align-items: center; gap: 10px; }
+.rate-override-row .entry-swatch { width: 8px; height: 22px; }
+.rate-svc-name { flex: 1; font-size: 0.88rem; }
+.rate-override-row .narrow { flex: 0 0 90px; width: 90px; }
+
+/* ===== Invoice expenses ===== */
+.section-row td { padding-top: 16px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #e2e8f0; }
+.foot-sub td { padding: 4px 10px; font-size: 0.88rem; }
+.invoice-expenses { margin-top: 22px; display: flex; flex-direction: column; gap: 8px; }
+.expense-row { display: flex; gap: 8px; align-items: center; }
+.expense-row input { color: #0f172a; background: #f8fafc; border-color: #e2e8f0; }
+.invoice-expenses .btn { width: auto; align-self: flex-start; }
+
+/* ===== A/R summary ===== */
+.ar-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.ar-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border); }
+.ar-tile.owed { border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.1); }
+.ar-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+.ar-value { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ar-sub { font-size: 0.72rem; color: var(--text-faint); }
+
+.hint.ok { color: var(--accent); }
+.hint.err { color: var(--danger); }
+
+/* ===== Reports ===== */
+.reports-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.range-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.range-chip { padding: 5px 12px; }
+.range-chip.sel { background: linear-gradient(90deg, var(--accent-2), var(--indigo)); color: #fff; border-color: transparent; }
+.custom-range { margin-top: 10px; }
+.custom-range .field { flex: 0 0 150px; }
+.range-caption { margin-top: 8px; }
+
+.metric-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.metric-toggle button {
+  background: transparent; border: none; color: var(--text-dim); cursor: pointer;
+  padding: 6px 14px; font-size: 0.85rem; font-family: inherit;
+}
+.metric-toggle button.active { background: rgba(34, 197, 94, 0.16); color: var(--accent); }
+
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+.stat-tile { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border); }
+.stat-tile.accent { border-color: rgba(34, 197, 94, 0.4); background: rgba(34, 197, 94, 0.08); }
+.stat-value { font-size: 1.5rem; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.stat-label { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+
+.donut-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+/* ===== Charts ===== */
+.chart-wrap { position: relative; width: 100%; }
+.chart-svg { width: 100%; height: 240px; display: block; overflow: visible; }
+.chart-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+.chart-axis { stroke: var(--border-strong); stroke-width: 1; }
+.chart-axis-label { fill: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-bar { transition: opacity 0.12s; cursor: default; }
+.chart-bar:hover { opacity: 0.82; }
+
+.chart-tip {
+  position: absolute; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none;
+  background: rgba(2, 6, 16, 0.94); border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 6px 10px; font-size: 0.78rem; white-space: nowrap; z-index: 20; box-shadow: var(--shadow);
+}
+.chart-tip-label { color: var(--text-dim); }
+.chart-tip-value { font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.donut-block { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.donut-wrap { width: 200px; flex: 0 0 200px; }
+.donut-svg { width: 200px; height: 200px; display: block; }
+.donut-arc { transition: opacity 0.12s; cursor: default; }
+.donut-arc.dim { opacity: 0.3; }
+.donut-pct { fill: #fff; font-size: 12px; font-weight: 650; pointer-events: none; }
+.donut-center-value { fill: var(--text); font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.donut-center-label { fill: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.donut-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 4px; }
+.donut-legend li { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 8px; align-items: center; font-size: 0.84rem; padding: 3px 4px; border-radius: 6px; transition: opacity 0.12s; }
+.donut-legend li.dim { opacity: 0.4; }
+.legend-swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-value { font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.legend-pct { font-variant-numeric: tabular-nums; color: var(--text-faint); width: 34px; text-align: right; }
+
+.report-table { width: 100%; border-collapse: collapse; }
+.report-table th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); padding: 8px 8px; border-bottom: 1px solid var(--border); }
+.report-table td { padding: 8px 8px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.report-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.report-table tfoot td { font-weight: 700; border-bottom: none; border-top: 2px solid var(--border-strong); }
+.report-table .legend-swatch { display: inline-block; vertical-align: middle; margin-right: 6px; }
+
+@media (max-width: 640px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .ar-summary { grid-template-columns: 1fr; }
+  .donut-grid { grid-template-columns: 1fr; }
+  .reports-controls { flex-direction: column; align-items: stretch; }
+}
+
 /* ===== Print: show only the invoice sheet ===== */
 @media print {
   body { background: #fff; }

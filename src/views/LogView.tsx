@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { TimeEntry, TractionState } from '../types'
-import { formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, todayISO } from '../store'
+import { formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO } from '../store'
 import { EntryRow } from './EntryRow'
 import { useNow } from '../useNow'
 
@@ -103,7 +103,8 @@ function ManualEntryForm({
   const [note, setNote] = useState('')
 
   const selected = services.find(s => s.id === serviceId)
-  const effectiveRate = rate !== '' ? Number(rate) : (selected?.defaultRate ?? 0)
+  const selectedClient = clientId ? (state.clients.find(c => c.id === clientId) ?? null) : null
+  const effectiveRate = rate !== '' ? Number(rate) : resolveRate(selected, selectedClient)
 
   function submit() {
     if (!serviceId) return
@@ -134,7 +135,7 @@ function ManualEntryForm({
         <label className="field narrow-field"><span>Minutes</span>
           <input type="number" min="0" max="59" value={minutes} onChange={e => setMinutes(e.target.value)} /></label>
         <label className="field narrow-field"><span>Rate /hr</span>
-          <input type="number" min="0" placeholder={String(selected?.defaultRate ?? 0)}
+          <input type="number" min="0" placeholder={String(resolveRate(selected, selectedClient))}
             value={rate} onChange={e => setRate(e.target.value)} /></label>
         <label className="field"><span>Note</span>
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></label>
