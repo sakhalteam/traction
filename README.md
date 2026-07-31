@@ -8,6 +8,9 @@ Track your hours against a **service** (reusable, e.g. "Deck cleanup") and an op
 the client + date range and traction breaks the work out **by day → by service**, with
 per-day subtotals and a grand total, ready to print or Save-as-PDF.
 
+> 📖 **New here? Read the [complete how-to guide](./docs/how-to.md)** — every feature,
+> the mental model, and step-by-step recipes with examples.
+
 ## Concepts
 
 - **Service** — a reusable *type* of work with a default $/hr. Global, never owned by a
