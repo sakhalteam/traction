@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Settings, TractionState } from '../types'
-import { entriesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
+import { entriesToCSV, expensesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
 
 function download(filename: string, text: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }))
@@ -28,6 +28,9 @@ export function SettingsView({
 
   function exportCSV() {
     download(`traction-time-${todayISO()}.csv`, entriesToCSV(state), 'text/csv')
+  }
+  function exportExpensesCSV() {
+    download(`traction-expenses-${todayISO()}.csv`, expensesToCSV(state), 'text/csv')
   }
   function exportJSON() {
     download(`traction-backup-${todayISO()}.json`, serializeBackup(state), 'application/json')
@@ -76,6 +79,7 @@ export function SettingsView({
         <p className="hint">Export for taxes/your accountant, or keep a backup you can restore on any machine.</p>
         <div className="quick-row">
           <button className="btn" onClick={exportCSV}>⬇ Time entries (CSV)</button>
+          <button className="btn" onClick={exportExpensesCSV}>⬇ Expenses (CSV)</button>
           <button className="btn" onClick={exportJSON}>⬇ Full backup (JSON)</button>
           <button className="btn" onClick={() => fileRef.current?.click()}>⬆ Restore backup…</button>
           <input ref={fileRef} type="file" accept="application/json,.json" hidden

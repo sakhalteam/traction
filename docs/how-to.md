@@ -15,7 +15,7 @@ keep going.** Everything below is the detail behind that loop.
 1. [The mental model (read this first)](#1-the-mental-model-read-this-first)
 2. [First-time setup](#2-first-time-setup)
 3. [The tabs, one by one](#3-the-tabs-one-by-one)
-   - [Timer](#timer) · [Log](#log) · [Clients](#clients) · [Services](#services) · [Invoices](#invoices) · [Reports](#reports) · [Settings](#settings)
+   - [Timer](#timer) · [Log](#log) · [Expenses](#expenses) · [Clients](#clients) · [Services](#services) · [Invoices](#invoices) · [Reports](#reports) · [Settings](#settings)
 4. [Guarantees & behaviors worth knowing](#4-guarantees--behaviors-worth-knowing)
 5. [Worked examples](#5-worked-examples)
 6. [Sync, backups & data safety](#6-sync-backups--data-safety)
@@ -25,14 +25,15 @@ keep going.** Everything below is the detail behind that loop.
 
 ## 1. The mental model (read this first)
 
-traction has exactly **four** things. Get these and everything else clicks.
+traction has **five** things. Get these and everything else clicks.
 
 | Thing | What it is | Example |
 |-------|-----------|---------|
 | **Client** | A person/household/HOA you bill. Optional — work can be "General". | *Larry & Linda*, *Maple St HOA* |
 | **Service** | A reusable **type of work** with a default hourly rate. **Global** — never owned by a client. | *Deck cleanup* @ $30/hr, *Pressure washing* @ $55/hr |
-| **Time entry** | One chunk of tracked work = `service + client + date + duration + rate + note`. The atom of everything. | *Jul 7 · Deck cleanup · Larry & Linda · 3h 47m · $30/hr* |
-| **Invoice** | A frozen bundle of unbilled entries for one client, grouped by day → service. | *INV-0001 · Larry & Linda · $273.50* |
+| **Time entry** | One chunk of tracked work = `service + client + date + duration + rate + note`. | *Jul 7 · Deck cleanup · Larry & Linda · 3h 47m · $30/hr* |
+| **Expense** | A cost you incurred. **Billable** ones go on a client's invoice; **overhead** (gas, gear) stays off invoices and feeds your profit. | *Jul 7 · Mulch · $120 · billable · Larry & Linda* |
+| **Invoice** | A frozen bundle of a client's unbilled time **and** billable expenses, grouped by day → service. | *INV-0001 · Larry & Linda · $273.50* |
 
 **The one concept that trips people up:** "Is this work tied to a client or not?"
 You don't answer that on the *service* — services are always reusable and global.
@@ -103,6 +104,26 @@ Every entry, grouped by date, newest first — your full history and manual-entr
 - **Locked entries:** once an entry is on an invoice it shows an **invoiced** tag and
   the edit/delete buttons disappear — see [guarantees](#4-guarantees--behaviors-worth-knowing).
 
+### Expenses
+
+Track costs the moment you incur them — the mirror image of time entries, on the cost side.
+
+- **Log an expense:** what it was (e.g. *Mulch*), amount, **category** (Materials, Fuel,
+  Equipment, Fees, Supplies, Other), date, and a **Type**:
+  - **Billable** — a cost you pass through to a client (materials, dump fees). Pick the
+    **client** so it can ride onto their next invoice. The client reimburses you.
+  - **Overhead** — *your* cost that never goes on a client bill (gas, a new pressure
+    washer, insurance). It just feeds your profit numbers and taxes.
+- **Two summary tiles:** *Unbilled billable* (materials waiting to go on an invoice) and
+  *Overhead logged* (your own costs).
+- **Filter** the history by All / Billable / Overhead.
+- **Edit / delete** any expense — unless it's already on an invoice (then it's locked,
+  same as time entries; delete the invoice to unlock it).
+
+> Billable expenses show up as **candidates in the invoice builder** for that client, and
+> get marked paid when the invoice is paid. Overhead never touches a client — it only
+> shows up in **Reports → Profit**.
+
 ### Clients
 
 - **Add** a client with just a name (e.g. *Larry & Linda*); fill in phone, email,
@@ -133,19 +154,19 @@ Where tracked time becomes money owed. Three parts: the **builder**, the **A/R s
 and the **list**.
 
 **Building an invoice:**
-1. **New invoice → pick a Client.** traction lists all their **unbilled, finished**
-   entries (running timers are excluded).
+1. **New invoice → pick a Client.** traction lists their **unbilled, finished** time
+   entries (running timers are excluded) **and** their unbilled **billable expenses**.
 2. Optionally set a **From / To** date range to narrow it down.
-3. **Untick** anything you don't want on this invoice. Watch the running total at the
-   bottom.
+3. **Untick** any time or expense you don't want on this invoice. Watch the running total.
 4. **Create invoice** → it opens the printable sheet.
 
 **The invoice sheet** shows your business "from" block, the client "bill to" block, and
-a table broken out **by day → by service**, with per-day subtotals and a grand total —
-exactly the format a client expects.
+a table broken out **by day → by service**, with per-day subtotals, a **Materials &
+charges** section, and a grand total — exactly the format a client expects.
 
-- **Materials & charges:** add non-time line items (mulch, dump fees, a flat charge)
-  under *Materials & charges*. They're added on top of labor in the grand total.
+- **Materials & charges** come from the billable **Expenses** you ticked in the builder.
+  You can also add a quick **one-off charge** right on the invoice (the *+ Add charge*
+  box) — it's saved as a billable expense too, so it still shows up in Reports.
 - **Notes:** payment terms, a thank-you, your Venmo — printed at the bottom.
 - **Status pills — draft → sent → paid:**
   - **draft** = built but not sent out yet.
@@ -171,6 +192,9 @@ Your analytics dashboard — the Toggl-style view of the business.
   **week**, or **month** (long ranges). Hover any bar for the exact figure.
 - **By service** & **By client** donuts: where your time/money actually goes. Hover a
   slice or legend row to highlight it.
+- **Profit:** Income (earnings) − Overhead = Net profit. Billable materials are treated
+  as reimbursed (a wash), so they don't cut your profit. Plus an **Expenses by category**
+  donut for tax time.
 - **Service breakdown table:** hours + earnings per service, with a total.
 
 ### Settings
@@ -180,6 +204,8 @@ Your analytics dashboard — the Toggl-style view of the business.
 - **Data & backup:**
   - **⬇ Time entries (CSV)** — a spreadsheet of every entry (date, client, service,
     hours, rate, amount, invoice). Hand this to your accountant at tax time.
+  - **⬇ Expenses (CSV)** — every expense (date, category, amount, billable?, client,
+    invoice) for tax deductions.
   - **⬇ Full backup (JSON)** — a complete snapshot of everything. Keep it somewhere safe
     (Dropbox!).
   - **⬆ Restore backup** — load a JSON backup. **This replaces everything currently in
@@ -253,11 +279,19 @@ Maple St HOA negotiated $50/hr for pressure washing (your default is $55).
 **Clients → Maple St HOA → ✎ → Custom rates → Pressure washing = 50 → Save.**
 Now every new *Maple + Pressure washing* timer auto-bills at $50. Everyone else stays $55.
 
-### Example D — materials on an invoice
+### Example D — materials & your own costs
 
-You planted $120 of shrubs for a client. Build their invoice as usual, then under
-**Materials & charges** add `Shrubs — 120` and `Dump fee — 20`. The grand total becomes
-labor + $140.
+Mid-job at Larry's you buy $120 of shrubs and pay a $20 dump fee, and you also fill up
+$45 of gas for the truck.
+
+1. **Expenses → Log an expense:** `Shrubs · 120 · Materials · Billable · Larry & Linda`,
+   then `Dump fee · 20 · Fees · Billable · Larry & Linda`.
+2. Log the gas as **Overhead** (no client): `Gas · 45 · Fuel · Overhead`.
+3. When you invoice Larry, the $120 + $20 show up as tickable **expense candidates** —
+   include them and they land under *Materials & charges* ($140 on top of labor). He
+   reimburses them when he pays.
+4. The $45 gas never touches Larry's bill. It shows in **Reports → Profit** as overhead,
+   trimming your net profit and giving you a tax-deductible record.
 
 ### Example E — non-client / general work
 

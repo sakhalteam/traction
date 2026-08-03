@@ -1,10 +1,11 @@
 import type { User } from '@supabase/supabase-js'
 
-export type View = 'timer' | 'clients' | 'services' | 'log' | 'invoices' | 'reports' | 'settings'
+export type View = 'timer' | 'clients' | 'services' | 'log' | 'expenses' | 'invoices' | 'reports' | 'settings'
 
 const NAV: { id: View; label: string }[] = [
   { id: 'timer', label: 'Timer' },
   { id: 'log', label: 'Log' },
+  { id: 'expenses', label: 'Expenses' },
   { id: 'clients', label: 'Clients' },
   { id: 'services', label: 'Services' },
   { id: 'invoices', label: 'Invoices' },

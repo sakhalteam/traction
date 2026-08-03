@@ -4,12 +4,15 @@ import type {
   BreakdownDay,
   BreakdownLine,
   Client,
+  Expense,
   Invoice,
   Service,
   Settings,
   TimeEntry,
   TractionState,
 } from './types'
+
+export const EXPENSE_CATEGORIES = ['Materials', 'Fuel', 'Equipment', 'Fees', 'Supplies', 'Other']
 
 const STORAGE_KEY = 'traction-state'
 const UPDATED_AT_KEY = 'traction-updated-at'
@@ -40,7 +43,7 @@ export function defaultSettings(): Settings {
 }
 
 export function emptyState(): TractionState {
-  return { clients: [], services: [], entries: [], invoices: [], settings: defaultSettings() }
+  return { clients: [], services: [], entries: [], expenses: [], invoices: [], settings: defaultSettings() }
 }
 
 // ---- Factories -----------------------------------------------------------
@@ -74,6 +77,13 @@ export function makeEntry(
   return {
     id: genId(), clientId, serviceId, note: '', date,
     seconds: 0, runningSince: null, rate, invoiceId: null, createdAt: Date.now(),
+  }
+}
+
+export function makeExpense(date: string): Expense {
+  return {
+    id: genId(), clientId: null, label: '', amount: 0, category: 'Materials',
+    date, billable: true, invoiceId: null, note: '', createdAt: Date.now(),
   }
 }
 
@@ -136,9 +146,9 @@ export function lineAmount(seconds: number, rate: number): number {
   return Math.round((seconds / 3600) * rate * 100) / 100
 }
 
-/** Sum of an invoice's non-time charges. */
-export function expensesTotal(invoice: Pick<Invoice, 'expenses'>): number {
-  return Math.round((invoice.expenses ?? []).reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100
+/** Sum of an invoice's frozen expense lines. */
+export function expensesTotal(invoice: Pick<Invoice, 'expensesSnapshot'>): number {
+  return Math.round((invoice.expensesSnapshot ?? []).reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100
 }
 
 /**
@@ -146,7 +156,7 @@ export function expensesTotal(invoice: Pick<Invoice, 'expenses'>): number {
  * present (immutable record); falls back to live entries for legacy invoices.
  */
 export function invoiceTotal(
-  invoice: Pick<Invoice, 'snapshot' | 'expenses' | 'entryIds'>,
+  invoice: Pick<Invoice, 'snapshot' | 'expensesSnapshot' | 'entryIds'>,
   entries: TimeEntry[],
 ): number {
   const labor = invoice.snapshot
@@ -229,17 +239,25 @@ export function hydrateState(raw: unknown): TractionState {
     ...c,
     rates: c.rates && typeof c.rates === 'object' ? c.rates : {},
   }))
-  const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => ({
-    ...i,
-    // Older invoices predate frozen snapshots — leave null so they re-derive live.
-    snapshot: i.snapshot ?? null,
-    expenses: Array.isArray(i.expenses) ? i.expenses : [],
-    paidDate: i.paidDate ?? null,
-  }))
+  const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
+    // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.
+    const legacy = (i as unknown as { expenses?: { id: string; label: string; amount: number }[] }).expenses
+    return {
+      ...i,
+      // Older invoices predate frozen snapshots — leave null so they re-derive live.
+      snapshot: i.snapshot ?? null,
+      expenseIds: Array.isArray(i.expenseIds) ? i.expenseIds : [],
+      expensesSnapshot: Array.isArray(i.expensesSnapshot) ? i.expensesSnapshot
+        : Array.isArray(legacy) ? legacy.map(x => ({ id: x.id, label: x.label, amount: x.amount }))
+        : [],
+      paidDate: i.paidDate ?? null,
+    }
+  })
   return {
     clients,
     services: Array.isArray(r.services) ? r.services : [],
     entries: Array.isArray(r.entries) ? r.entries : [],
+    expenses: Array.isArray(r.expenses) ? r.expenses : [],
     invoices,
     settings: { ...defaultSettings(), ...(r.settings ?? {}) },
   }
@@ -311,6 +329,20 @@ export function parseBackup(text: string): TractionState {
 function csvCell(value: string | number): string {
   const s = String(value)
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** All expenses as a CSV (one row per expense) for taxes / accountant. */
+export function expensesToCSV(state: TractionState): string {
+  const cli = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? 'Unknown') : ''
+  const invNum = (id: string | null) => id ? (state.invoices.find(i => i.id === id)?.number ?? '') : ''
+  const header = ['Date', 'Category', 'Label', 'Amount', 'Billable', 'Client', 'Invoice', 'Note']
+  const rows = [...state.expenses]
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt))
+    .map(x => [
+      x.date, x.category, x.label, x.amount, x.billable ? 'yes' : 'no',
+      cli(x.clientId), invNum(x.invoiceId), x.note,
+    ].map(csvCell).join(','))
+  return [header.join(','), ...rows].join('\r\n')
 }
 
 /** All time entries as a CSV (one row per entry) for taxes / accountant. */

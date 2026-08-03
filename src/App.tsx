@@ -3,10 +3,10 @@ import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabaseClient'
 import {
   emptyState, loadLocal, saveLocal, saveRemote, loadRemote, getLocalUpdatedAt,
-  makeClient, makeService, makeEntry, todayISO, buildBreakdown, formatClock, liveSeconds,
+  makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
 } from './store'
 import type {
-  Client, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
+  Client, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
 } from './types'
 import { useNow } from './useNow'
 import { Chrome, type View } from './Chrome'
@@ -14,6 +14,7 @@ import { TimerView } from './views/TimerView'
 import { ClientsView } from './views/ClientsView'
 import { ServicesView } from './views/ServicesView'
 import { LogView } from './views/LogView'
+import { ExpensesView } from './views/ExpensesView'
 import { InvoicesView } from './views/InvoicesView'
 import { ReportsView } from './views/ReportsView'
 import { SettingsView } from './views/SettingsView'
@@ -171,6 +172,25 @@ export default function App() {
     mutate(s => ({ ...s, entries: [...s.entries, e] }))
   }, [mutate])
 
+  // ---- Expense actions (locked once billed onto an invoice) ----
+  const addExpense = useCallback((exp: Expense) => {
+    mutate(s => ({ ...s, expenses: [...s.expenses, exp] }))
+  }, [mutate])
+  const updateExpense = useCallback((exp: Expense) => {
+    mutate(s => {
+      const existing = s.expenses.find(x => x.id === exp.id)
+      if (!existing || existing.invoiceId) return s
+      return { ...s, expenses: s.expenses.map(x => x.id === exp.id ? exp : x) }
+    })
+  }, [mutate])
+  const deleteExpense = useCallback((id: string) => {
+    mutate(s => {
+      const existing = s.expenses.find(x => x.id === id)
+      if (!existing || existing.invoiceId) return s
+      return { ...s, expenses: s.expenses.filter(x => x.id !== id) }
+    })
+  }, [mutate])
+
   /** Start a fresh running timer, stopping any other that's live. */
   const startTimer = useCallback((serviceId: string, clientId: string | null, rate: number, note: string) => {
     const now = Date.now()
@@ -198,29 +218,71 @@ export default function App() {
 
   // ---- Invoice actions ----
   const createInvoice = useCallback((
-    clientId: string, entryIds: string[], periodStart: string, periodEnd: string,
+    clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string,
   ): Invoice => {
     const id = crypto.randomUUID()
     let created: Invoice | null = null
     mutate(s => {
       const num = `INV-${String(s.settings.invoiceCounter).padStart(4, '0')}`
-      // Freeze the labor breakdown NOW so later entry edits can't rewrite it.
+      // Freeze labor AND expense lines NOW so later edits can't rewrite the invoice.
       const chosen = s.entries.filter(e => entryIds.includes(e.id))
       const snapshot = buildBreakdown(chosen, s.services)
+      const expensesSnapshot = s.expenses
+        .filter(x => expenseIds.includes(x.id))
+        .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0 }))
       const invoice: Invoice = {
         id, clientId, number: num, issuedDate: todayISO(),
         periodStart, periodEnd, entryIds: [...entryIds], snapshot,
-        expenses: [], status: 'draft', paidDate: null, notes: '', createdAt: Date.now(),
+        expenseIds: [...expenseIds], expensesSnapshot,
+        status: 'draft', paidDate: null, notes: '', createdAt: Date.now(),
       }
       created = invoice
       return {
         ...s,
         invoices: [...s.invoices, invoice],
         entries: s.entries.map(e => entryIds.includes(e.id) ? { ...e, invoiceId: invoice.id } : e),
+        expenses: s.expenses.map(x => expenseIds.includes(x.id) ? { ...x, invoiceId: invoice.id } : x),
         settings: { ...s.settings, invoiceCounter: s.settings.invoiceCounter + 1 },
       }
     })
     return created!
+  }, [mutate])
+
+  // Add / edit / remove a one-off charge directly on an invoice (backed by a
+  // real billable Expense so it still shows up in Reports and the Expenses tab).
+  const addInvoiceCharge = useCallback((invoiceId: string) => {
+    mutate(s => {
+      const inv = s.invoices.find(i => i.id === invoiceId)
+      if (!inv || inv.status === 'paid') return s
+      const exp: Expense = { ...makeExpense(inv.issuedDate), clientId: inv.clientId, billable: true, invoiceId }
+      return {
+        ...s,
+        expenses: [...s.expenses, exp],
+        invoices: s.invoices.map(i => i.id === invoiceId
+          ? { ...i, expenseIds: [...i.expenseIds, exp.id], expensesSnapshot: [...i.expensesSnapshot, { id: exp.id, label: '', amount: 0 }] }
+          : i),
+      }
+    })
+  }, [mutate])
+  const updateInvoiceCharge = useCallback((invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => {
+    mutate(s => ({
+      ...s,
+      expenses: s.expenses.map(x => x.id === expenseId ? { ...x, ...patch } : x),
+      invoices: s.invoices.map(i => i.id === invoiceId
+        ? { ...i, expensesSnapshot: i.expensesSnapshot.map(l => l.id === expenseId
+            ? { ...l, ...(patch.label !== undefined ? { label: patch.label } : {}), ...(patch.amount !== undefined ? { amount: patch.amount } : {}) }
+            : l) }
+        : i),
+    }))
+  }, [mutate])
+  const removeInvoiceCharge = useCallback((invoiceId: string, expenseId: string) => {
+    mutate(s => ({
+      ...s,
+      expenses: s.expenses.filter(x => x.id !== expenseId),
+      invoices: s.invoices.map(i => i.id === invoiceId
+        ? { ...i, expenseIds: i.expenseIds.filter(id => id !== expenseId), expensesSnapshot: i.expensesSnapshot.filter(l => l.id !== expenseId) }
+        : i),
+    }))
   }, [mutate])
 
   const setInvoiceStatus = useCallback((id: string, status: InvoiceStatus) => {
@@ -238,7 +300,13 @@ export default function App() {
     mutate(s => ({
       ...s,
       invoices: s.invoices.filter(i => i.id !== id),
+      // Release billed entries back to unbilled. Inline one-off charges (which
+      // only exist because of this invoice) are removed; pre-logged expenses are
+      // released back to the unbilled pool.
       entries: s.entries.map(e => e.invoiceId === id ? { ...e, invoiceId: null } : e),
+      expenses: s.expenses
+        .filter(x => !(x.invoiceId === id && !x.label && !x.amount))
+        .map(x => x.invoiceId === id ? { ...x, invoiceId: null } : x),
     }))
   }, [mutate])
 
@@ -329,6 +397,14 @@ export default function App() {
             onAddManual={addManualEntry}
           />
         )}
+        {view === 'expenses' && (
+          <ExpensesView
+            state={state}
+            onAdd={addExpense}
+            onUpdate={updateExpense}
+            onDelete={deleteExpense}
+          />
+        )}
         {view === 'invoices' && (
           <InvoicesView
             state={state}
@@ -336,6 +412,9 @@ export default function App() {
             onSetStatus={setInvoiceStatus}
             onUpdate={updateInvoice}
             onDelete={deleteInvoice}
+            onAddCharge={addInvoiceCharge}
+            onUpdateCharge={updateInvoiceCharge}
+            onRemoveCharge={removeInvoiceCharge}
           />
         )}
         {view === 'reports' && <ReportsView state={state} />}

@@ -55,8 +55,30 @@ export interface TimeEntry {
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid'
 
-/** A non-time charge on an invoice (materials, dump fees, flat charges). */
+/**
+ * A cost you incurred. **Billable** expenses can be pulled onto a client's
+ * invoice (client reimburses you); **non-billable** ones are your own overhead
+ * (gas, gear, insurance) tracked for profit and taxes. The mirror image of a
+ * TimeEntry, on the cost side.
+ */
 export interface Expense {
+  id: string
+  clientId: string | null
+  label: string
+  amount: number
+  /** Free-ish tax bucket: Materials, Fuel, Equipment, Fees, Supplies, Other… */
+  category: string
+  date: string // YYYY-MM-DD
+  /** true = pass through to a client's invoice; false = your own overhead. */
+  billable: boolean
+  /** Set once this expense has been placed on an invoice (billable only). */
+  invoiceId: string | null
+  note: string
+  createdAt: number
+}
+
+/** A frozen expense line copied onto an invoice at creation (immutable record). */
+export interface ExpenseLine {
   id: string
   label: string
   amount: number
@@ -78,8 +100,10 @@ export interface Invoice {
    * entries (handled in InvoiceDetail).
    */
   snapshot: Breakdown | null
-  /** Non-time charges (materials, dump fees). Editable while unpaid. */
-  expenses: Expense[]
+  /** Billable expenses pulled onto this invoice (for reference / un-billing). */
+  expenseIds: string[]
+  /** Frozen expense lines at creation — the immutable materials record. */
+  expensesSnapshot: ExpenseLine[]
   status: InvoiceStatus
   /** Set to today's date when first marked paid; cleared if un-paid. */
   paidDate: string | null
@@ -102,6 +126,7 @@ export interface TractionState {
   clients: Client[]
   services: Service[]
   entries: TimeEntry[]
+  expenses: Expense[]
   invoices: Invoice[]
   settings: Settings
 }

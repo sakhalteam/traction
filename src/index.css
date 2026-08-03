@@ -387,6 +387,22 @@ textarea { resize: vertical; }
 .hint.ok { color: var(--accent); }
 .hint.err { color: var(--danger); }
 
+.ar-summary.two { grid-template-columns: repeat(2, 1fr); }
+
+/* ===== Expenses ===== */
+.expense-badge {
+  flex: none; align-self: center;
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 3px 8px; border-radius: 6px; min-width: 74px; text-align: center;
+}
+.expense-badge.billable { background: rgba(14, 165, 233, 0.16); color: #7dd3fc; }
+.expense-badge.overhead { background: rgba(148, 163, 184, 0.16); color: var(--text-dim); }
+.expense-badge.tiny { min-width: 0; padding: 1px 6px; font-size: 0.6rem; }
+
+.billable-field { flex: 0 0 190px; }
+.billable-toggle { align-self: flex-start; }
+.metric-toggle.small button { padding: 4px 10px; font-size: 0.78rem; }
+
 /* ===== Reports ===== */
 .reports-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .range-row { display: flex; gap: 6px; flex-wrap: wrap; }

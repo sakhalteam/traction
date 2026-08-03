@@ -4,13 +4,16 @@ import { buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, 
 import { InvoiceDetail } from './InvoiceDetail'
 
 export function InvoicesView({
-  state, onCreate, onSetStatus, onUpdate, onDelete,
+  state, onCreate, onSetStatus, onUpdate, onDelete, onAddCharge, onUpdateCharge, onRemoveCharge,
 }: {
   state: TractionState
-  onCreate: (clientId: string, entryIds: string[], periodStart: string, periodEnd: string) => Invoice
+  onCreate: (clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string) => Invoice
   onSetStatus: (id: string, status: InvoiceStatus) => void
   onUpdate: (i: Invoice) => void
   onDelete: (id: string) => void
+  onAddCharge: (invoiceId: string) => void
+  onUpdateCharge: (invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => void
+  onRemoveCharge: (invoiceId: string, expenseId: string) => void
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
 
@@ -24,6 +27,9 @@ export function InvoicesView({
         onSetStatus={onSetStatus}
         onUpdate={onUpdate}
         onDelete={id => { onDelete(id); setOpenId(null) }}
+        onAddCharge={onAddCharge}
+        onUpdateCharge={onUpdateCharge}
+        onRemoveCharge={onRemoveCharge}
       />
     )
   }
@@ -40,52 +46,63 @@ function InvoiceBuilder({
   state, onCreate,
 }: {
   state: TractionState
-  onCreate: (clientId: string, entryIds: string[], periodStart: string, periodEnd: string) => void
+  onCreate: (clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string) => void
 }) {
   const clients = state.clients.filter(c => !c.archived)
+  const cur = state.settings.currency
   const [clientId, setClientId] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState(todayISO())
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const [excludedExp, setExcludedExp] = useState<Set<string>>(new Set())
 
-  // Unbilled, finalized entries for this client (optionally within range).
+  const inRange = (date: string) => (start === '' || date >= start) && (end === '' || date <= end)
+
+  // Unbilled, finalized time entries for this client (optionally within range).
   const candidates = useMemo(() => {
     if (!clientId) return []
     return state.entries.filter(e =>
-      e.clientId === clientId &&
-      !e.invoiceId &&
-      !e.runningSince &&
-      (start === '' || e.date >= start) &&
-      (end === '' || e.date <= end),
-    )
+      e.clientId === clientId && !e.invoiceId && !e.runningSince && inRange(e.date))
   }, [state.entries, clientId, start, end])
 
-  const included = candidates.filter(e => !excluded.has(e.id))
-  const breakdown = useMemo(() => buildBreakdown(included, state.services), [included, state.services])
+  // Unbilled billable expenses for this client (optionally within range).
+  const expCandidates = useMemo(() => {
+    if (!clientId) return []
+    return state.expenses.filter(x =>
+      x.clientId === clientId && x.billable && !x.invoiceId && inRange(x.date))
+  }, [state.expenses, clientId, start, end])
 
-  function toggle(id: string) {
-    setExcluded(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
+  const included = candidates.filter(e => !excluded.has(e.id))
+  const includedExp = expCandidates.filter(x => !excludedExp.has(x.id))
+  const breakdown = useMemo(() => buildBreakdown(included, state.services), [included, state.services])
+  const expSum = includedExp.reduce((s, x) => s + x.amount, 0)
+  const grand = Math.round((breakdown.total + expSum) * 100) / 100
+
+  const toggle = (id: string) => setExcluded(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
+  const toggleExp = (id: string) => setExcludedExp(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
+  const resetClient = (id: string) => { setClientId(id); setExcluded(new Set()); setExcludedExp(new Set()) }
 
   function create() {
-    if (!clientId || included.length === 0) return
-    const dates = included.map(e => e.date).sort()
+    if (!clientId || (included.length === 0 && includedExp.length === 0)) return
+    const dates = [...included.map(e => e.date), ...includedExp.map(x => x.date)].sort()
     const periodStart = start || dates[0]
     const periodEnd = end || dates[dates.length - 1]
-    onCreate(clientId, included.map(e => e.id), periodStart, periodEnd)
-    setExcluded(new Set())
+    onCreate(clientId, included.map(e => e.id), includedExp.map(x => x.id), periodStart, periodEnd)
+    setExcluded(new Set()); setExcludedExp(new Set())
   }
+
+  const nothing = candidates.length === 0 && expCandidates.length === 0
 
   return (
     <div className="panel">
       <h2>New invoice</h2>
       <div className="field-row">
         <label className="field"><span>Client</span>
-          <select value={clientId} onChange={e => { setClientId(e.target.value); setExcluded(new Set()) }}>
+          <select value={clientId} onChange={e => resetClient(e.target.value)}>
             <option value="">Pick a client…</option>
             {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select></label>
@@ -96,35 +113,65 @@ function InvoiceBuilder({
       </div>
 
       {clientId && (
-        candidates.length === 0 ? (
-          <p className="hint">No unbilled entries for this client in that range.</p>
+        nothing ? (
+          <p className="hint">No unbilled time or expenses for this client in that range.</p>
         ) : (
           <>
-            <p className="hint tiny">Untick anything you don't want on this invoice.</p>
-            <ul className="candidate-list">
-              {candidates.map(e => {
-                const svc = state.services.find(s => s.id === e.serviceId)
-                const secs = liveSeconds(e)
-                const inc = !excluded.has(e.id)
-                return (
-                  <li key={e.id} className={`candidate ${inc ? '' : 'off'}`}>
-                    <label>
-                      <input type="checkbox" checked={inc} onChange={() => toggle(e.id)} />
-                      <span className="cand-date">{formatDate(e.date)}</span>
-                      <span className="cand-svc">{svc?.name ?? '—'}{e.note ? ` · ${e.note}` : ''}</span>
-                      <span className="cand-dur">{formatDuration(secs)}</span>
-                      <span className="cand-amt">{formatMoney(lineAmount(secs, e.rate), state.settings.currency)}</span>
-                    </label>
-                  </li>
-                )
-              })}
-            </ul>
+            {candidates.length > 0 && (
+              <>
+                <p className="hint tiny">Time — untick anything you don't want on this invoice.</p>
+                <ul className="candidate-list">
+                  {candidates.map(e => {
+                    const svc = state.services.find(s => s.id === e.serviceId)
+                    const secs = liveSeconds(e)
+                    const inc = !excluded.has(e.id)
+                    return (
+                      <li key={e.id} className={`candidate ${inc ? '' : 'off'}`}>
+                        <label>
+                          <input type="checkbox" checked={inc} onChange={() => toggle(e.id)} />
+                          <span className="cand-date">{formatDate(e.date)}</span>
+                          <span className="cand-svc">{svc?.name ?? '—'}{e.note ? ` · ${e.note}` : ''}</span>
+                          <span className="cand-dur">{formatDuration(secs)}</span>
+                          <span className="cand-amt">{formatMoney(lineAmount(secs, e.rate), cur)}</span>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            )}
+
+            {expCandidates.length > 0 && (
+              <>
+                <p className="hint tiny">Expenses (materials) — billable costs for this client.</p>
+                <ul className="candidate-list">
+                  {expCandidates.map(x => {
+                    const inc = !excludedExp.has(x.id)
+                    return (
+                      <li key={x.id} className={`candidate ${inc ? '' : 'off'}`}>
+                        <label>
+                          <input type="checkbox" checked={inc} onChange={() => toggleExp(x.id)} />
+                          <span className="cand-date">{formatDate(x.date)}</span>
+                          <span className="cand-svc"><span className="expense-badge billable tiny">{x.category}</span> {x.label}</span>
+                          <span className="cand-dur" />
+                          <span className="cand-amt">{formatMoney(x.amount, cur)}</span>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            )}
+
             <div className="builder-foot">
               <div className="grand">
-                <span className="dim">{included.length} entr{included.length === 1 ? 'y' : 'ies'} · {formatDuration(breakdown.totalSeconds)}</span>
-                <span className="big-money">{formatMoney(breakdown.total, state.settings.currency)}</span>
+                <span className="dim">
+                  {included.length} entr{included.length === 1 ? 'y' : 'ies'} · {formatDuration(breakdown.totalSeconds)}
+                  {includedExp.length > 0 && ` + ${includedExp.length} expense${includedExp.length === 1 ? '' : 's'}`}
+                </span>
+                <span className="big-money">{formatMoney(grand, cur)}</span>
               </div>
-              <button className="btn primary big" disabled={included.length === 0} onClick={create}>
+              <button className="btn primary big" disabled={included.length === 0 && includedExp.length === 0} onClick={create}>
                 Create invoice
               </button>
             </div>

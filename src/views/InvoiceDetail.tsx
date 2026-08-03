@@ -1,13 +1,11 @@
 import { Fragment, useMemo, useState } from 'react'
-import type { Expense, Invoice, InvoiceStatus, TractionState } from '../types'
-import {
-  buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney, genId,
-} from '../store'
+import type { Invoice, InvoiceStatus, TractionState } from '../types'
+import { buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney } from '../store'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
 export function InvoiceDetail({
-  invoice, state, onBack, onSetStatus, onUpdate, onDelete,
+  invoice, state, onBack, onSetStatus, onUpdate, onDelete, onAddCharge, onUpdateCharge, onRemoveCharge,
 }: {
   invoice: Invoice
   state: TractionState
@@ -15,6 +13,9 @@ export function InvoiceDetail({
   onSetStatus: (id: string, status: InvoiceStatus) => void
   onUpdate: (i: Invoice) => void
   onDelete: (id: string) => void
+  onAddCharge: (invoiceId: string) => void
+  onUpdateCharge: (invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => void
+  onRemoveCharge: (invoiceId: string, expenseId: string) => void
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
   const client = state.clients.find(c => c.id === invoice.clientId)
@@ -30,8 +31,6 @@ export function InvoiceDetail({
 
   const expTotal = expensesTotal(invoice)
   const grand = Math.round((breakdown.total + expTotal) * 100) / 100
-
-  const setExpenses = (expenses: Expense[]) => onUpdate({ ...invoice, expenses })
 
   return (
     <div className="view invoice-detail">
@@ -112,10 +111,10 @@ export function InvoiceDetail({
               </Fragment>
             ))}
 
-            {invoice.expenses.length > 0 && (
+            {invoice.expensesSnapshot.length > 0 && (
               <>
                 <tr className="section-row"><td colSpan={5}>Materials &amp; charges</td></tr>
-                {invoice.expenses.map(x => (
+                {invoice.expensesSnapshot.map(x => (
                   <tr key={x.id}>
                     <td />
                     <td>{x.label || 'Charge'}</td>
@@ -148,12 +147,12 @@ export function InvoiceDetail({
           </tfoot>
         </table>
 
-        <ExpensesEditor
-          expenses={invoice.expenses}
-          currency={settings.currency}
-          locked={locked}
-          onChange={setExpenses}
-        />
+        {!locked && (
+          <ChargesEditor
+            invoice={invoice} currency={settings.currency}
+            onAdd={onAddCharge} onUpdate={onUpdateCharge} onRemove={onRemoveCharge}
+          />
+        )}
 
         <InvoiceNotes invoice={invoice} onUpdate={onUpdate} />
       </div>
@@ -161,33 +160,29 @@ export function InvoiceDetail({
   )
 }
 
-function ExpensesEditor({
-  expenses, currency, locked, onChange,
+function ChargesEditor({
+  invoice, currency, onAdd, onUpdate, onRemove,
 }: {
-  expenses: Expense[]
+  invoice: Invoice
   currency: string
-  locked: boolean
-  onChange: (x: Expense[]) => void
+  onAdd: (invoiceId: string) => void
+  onUpdate: (invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => void
+  onRemove: (invoiceId: string, expenseId: string) => void
 }) {
-  if (locked) return null
-  const update = (id: string, patch: Partial<Expense>) =>
-    onChange(expenses.map(x => x.id === id ? { ...x, ...patch } : x))
-  const add = () => onChange([...expenses, { id: genId(), label: '', amount: 0 }])
-  const remove = (id: string) => onChange(expenses.filter(x => x.id !== id))
-
   return (
     <div className="invoice-expenses no-print">
-      <span className="label">Materials &amp; charges ({currency})</span>
-      {expenses.map(x => (
+      <span className="label">Materials &amp; charges ({currency}) — one-off charges on this invoice</span>
+      {invoice.expensesSnapshot.map(x => (
         <div key={x.id} className="expense-row">
           <input placeholder="e.g. Mulch, dump fee" value={x.label}
-            onChange={e => update(x.id, { label: e.target.value })} />
+            onChange={e => onUpdate(invoice.id, x.id, { label: e.target.value })} />
           <input className="narrow" type="number" min="0" step="0.01" placeholder="0.00"
-            value={x.amount || ''} onChange={e => update(x.id, { amount: Number(e.target.value) || 0 })} />
-          <button className="icon-btn danger" title="Remove" onClick={() => remove(x.id)}>✕</button>
+            value={x.amount || ''} onChange={e => onUpdate(invoice.id, x.id, { amount: Number(e.target.value) || 0 })} />
+          <button className="icon-btn danger" title="Remove" onClick={() => onRemove(invoice.id, x.id)}>✕</button>
         </div>
       ))}
-      <button className="btn" onClick={add}>+ Add charge</button>
+      <button className="btn" onClick={() => onAdd(invoice.id)}>+ Add charge</button>
+      <p className="hint tiny">Or log expenses ahead of time in the <strong>Expenses</strong> tab and pick them when building the invoice.</p>
     </div>
   )
 }

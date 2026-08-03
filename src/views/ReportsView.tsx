@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { TractionState } from '../types'
 import {
-  decimalHours, formatDuration, formatMoney, formatDate, lineAmount, liveSeconds,
+  decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, lineAmount, liveSeconds,
   monthKey, periodLabel, todayISO, weekStartISO,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
@@ -160,6 +160,28 @@ export function ReportsView({ state }: { state: TractionState }) {
 
   const avgRate = totals.seconds > 0 ? totals.earnings / (totals.seconds / 3600) : 0
 
+  // Expenses in range → profit picture. Billable materials are treated as a
+  // wash (client reimburses them), so profit = earnings − overhead.
+  const expStats = useMemo(() => {
+    let billable = 0, overhead = 0
+    const byCat = new Map<string, number>()
+    for (const x of state.expenses) {
+      if (x.date < from || x.date > to) continue
+      if (x.billable) billable += x.amount; else overhead += x.amount
+      byCat.set(x.category, (byCat.get(x.category) ?? 0) + x.amount)
+    }
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    return { billable: r2(billable), overhead: r2(overhead), spent: r2(billable + overhead), byCat }
+  }, [state.expenses, from, to])
+
+  const net = Math.round((totals.earnings - expStats.overhead) * 100) / 100
+  const categorySlices: Slice[] = useMemo(() => (
+    [...expStats.byCat.entries()]
+      .map(([cat, value]) => ({ key: cat, label: cat, value, color: CLIENT_COLORS[Math.max(0, EXPENSE_CATEGORIES.indexOf(cat)) % CLIENT_COLORS.length] }))
+      .filter(s => s.value > 0)
+      .sort((a, b) => b.value - a.value)
+  ), [expStats])
+
   if (state.entries.length === 0) {
     return (
       <div className="view">
@@ -227,6 +249,31 @@ export function ReportsView({ state }: { state: TractionState }) {
             centerValue={fmt(clientSlices.reduce((s, x) => s + x.value, 0))} />
         </div>
       </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Profit</h3>
+          <span className="dim tiny">earnings − overhead</span>
+        </div>
+        <div className="stat-grid">
+          <StatTile label="Income" value={formatMoney(totals.earnings, cur)} />
+          <StatTile label="Materials" value={formatMoney(expStats.billable, cur)} />
+          <StatTile label="Overhead" value={formatMoney(expStats.overhead, cur)} />
+          <StatTile label="Net profit" value={formatMoney(net, cur)} accent={net >= 0} />
+        </div>
+        <p className="hint tiny">
+          Net = earnings − overhead. Billable materials ({formatMoney(expStats.billable, cur)}) are
+          treated as reimbursed by clients, so they don't reduce profit. Track costs in the Expenses tab.
+        </p>
+      </div>
+
+      {categorySlices.length > 0 && (
+        <div className="panel">
+          <h3>Expenses by category</h3>
+          <Donut slices={categorySlices} formatValue={v => formatMoney(v, cur)}
+            centerLabel="spent" centerValue={formatMoney(expStats.spent, cur)} />
+        </div>
+      )}
 
       <div className="panel">
         <h3>Service breakdown</h3>
