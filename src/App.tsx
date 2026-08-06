@@ -4,10 +4,12 @@ import { supabase } from './supabaseClient'
 import {
   emptyState, loadLocal, saveLocal, saveRemote, loadRemote, getLocalUpdatedAt,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
+  addDays,
 } from './store'
 import type {
   Client, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
 } from './types'
+import { deleteReceipt } from './receipts'
 import { useNow } from './useNow'
 import { Chrome, type View } from './Chrome'
 import { TimerView } from './views/TimerView'
@@ -187,6 +189,9 @@ export default function App() {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
       if (!existing || existing.invoiceId) return s
+      // Don't strand the receipt photo in Storage. Best-effort and deliberately
+      // un-awaited: a failed cleanup must never block deleting the expense.
+      if (existing.receiptPath) void deleteReceipt(supabase, existing.receiptPath)
       return { ...s, expenses: s.expenses.filter(x => x.id !== id) }
     })
   }, [mutate])
@@ -194,7 +199,8 @@ export default function App() {
   /** Start a fresh running timer, stopping any other that's live. */
   const startTimer = useCallback((serviceId: string, clientId: string | null, rate: number, note: string) => {
     const now = Date.now()
-    const fresh = { ...makeEntry(serviceId, rate, clientId, todayISO()), note, runningSince: now }
+    // startedAt is the real wall-clock start, so the entry can be re-timed later.
+    const fresh = { ...makeEntry(serviceId, rate, clientId, todayISO(), now), note, runningSince: now }
     mutate(s => ({
       ...s,
       entries: [
@@ -230,8 +236,12 @@ export default function App() {
       const expensesSnapshot = s.expenses
         .filter(x => expenseIds.includes(x.id))
         .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0 }))
+      const issuedDate = todayISO()
       const invoice: Invoice = {
-        id, clientId, number: num, issuedDate: todayISO(),
+        id, clientId, number: num, issuedDate,
+        // Freeze the terms in effect today; changing netDays later must not
+        // retroactively make already-issued invoices overdue.
+        dueDate: addDays(issuedDate, s.settings.netDays),
         periodStart, periodEnd, entryIds: [...entryIds], snapshot,
         expenseIds: [...expenseIds], expensesSnapshot,
         status: 'draft', paidDate: null, notes: '', createdAt: Date.now(),

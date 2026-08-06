@@ -278,6 +278,29 @@ textarea { resize: vertical; }
 .status-pill.draft { background: rgba(148, 163, 184, 0.16); color: var(--text-dim); }
 .status-pill.sent { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; }
 .status-pill.paid { background: rgba(34, 197, 94, 0.18); color: var(--accent); }
+/* "45d late" must stay on one line — the pill sits in a fixed-width grid cell. */
+.status-pill.overdue {
+  background: rgba(244, 63, 94, 0.18); color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.4);
+  white-space: nowrap; text-transform: none;
+}
+
+/* A/R aging — only rendered when something is actually late */
+.aging-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 18px; }
+.aging-title {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--danger); font-weight: 650;
+}
+.aging-chip {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  font-size: 0.78rem; padding: 4px 11px; border-radius: 999px;
+  background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.22);
+  color: var(--text-dim);
+}
+.aging-chip strong { color: #fda4af; font-variant-numeric: tabular-nums; }
+.aging-chip.b31-60 { background: rgba(244, 63, 94, 0.16); border-color: rgba(244, 63, 94, 0.34); }
+.aging-chip.b60plus { background: rgba(244, 63, 94, 0.24); border-color: rgba(244, 63, 94, 0.5); }
+.aging-chip.b60plus strong { color: #fecdd3; }
 
 /* ===== Invoice detail / printable sheet ===== */
 .detail-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -292,6 +315,8 @@ textarea { resize: vertical; }
   max-width: 800px; margin: 0 auto; width: 100%;
 }
 .invoice-sheet .dim { color: #64748b; }
+/* Due date sits on the white printable sheet — must stay legible in print. */
+.due-line { color: #0f172a; font-weight: 600; }
 .invoice-top { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
 .from-name { font-size: 1.25rem; font-weight: 700; margin-bottom: 4px; }
 .invoice-meta { text-align: right; }
@@ -388,6 +413,35 @@ textarea { resize: vertical; }
 .hint.err { color: var(--danger); }
 
 .ar-summary.two { grid-template-columns: repeat(2, 1fr); }
+
+/* ===== Time range editor ===== */
+.time-range { align-items: flex-end; }
+.time-range .field { flex: 1 1 200px; }
+.range-arrow { color: var(--text-dim); padding-bottom: 10px; flex: none; }
+
+.nudge-field { flex: 1 1 260px; display: flex; flex-direction: column; gap: 6px; }
+.nudge-row { display: flex; gap: 6px; }
+.nudge-row .btn { flex: 1; }
+.btn.tiny { padding: 8px 6px; font-size: 0.78rem; }
+
+/* Wall-clock span on a collapsed entry row */
+.entry-span { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* ===== Receipt attachments ===== */
+.receipt-control { display: inline-flex; align-items: center; gap: 2px; }
+.receipt-control .icon-btn:disabled { opacity: 0.5; cursor: default; }
+.icon-btn.has-receipt { color: var(--accent); }
+.icon-btn.subtle { opacity: 0.45; font-size: 0.8rem; }
+.icon-btn.subtle:hover { opacity: 1; }
+.receipt-error {
+  color: var(--danger); font-weight: 700; font-size: 0.8rem;
+  cursor: help; padding: 0 3px;
+}
+
+.invoice-receipts { margin-top: 20px; }
+.invoice-receipts .label { display: block; margin-bottom: 8px; }
+.receipt-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.receipt-link { flex: 0 0 auto; }
 
 /* ===== Expenses ===== */
 .expense-badge {

@@ -68,7 +68,14 @@ export function SettingsView({
           <label className="field narrow-field"><span>Next invoice #</span>
             <input type="number" min="1" value={s.invoiceCounter}
               onChange={e => set({ invoiceCounter: Number(e.target.value) || 1 })} /></label>
+          <label className="field narrow-field"><span>Payment terms</span>
+            <input type="number" min="0" max="365" value={s.netDays}
+              onChange={e => set({ netDays: Math.max(0, Number(e.target.value) || 0) })} /></label>
         </div>
+        <p className="hint tiny">
+          Terms are the days a client has to pay. Each new invoice freezes the terms in
+          effect the day it's created, so changing this never makes an old invoice overdue.
+        </p>
         <button className="btn primary" disabled={!dirty} onClick={() => onUpdate(s)}>
           {dirty ? 'Save changes' : 'Saved'}
         </button>

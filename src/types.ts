@@ -40,8 +40,21 @@ export interface TimeEntry {
   serviceId: string
   /** Free text for the specific instance, e.g. "south side rock wall". */
   note: string
-  /** Local calendar day the work is billed to, 'YYYY-MM-DD'. */
+  /**
+   * Local calendar day the work is billed to, 'YYYY-MM-DD'. Always kept in sync
+   * with `startedAt` when that is set — invoicing groups and filters on this.
+   */
   date: string
+  /**
+   * epoch ms the work began. Null on legacy entries logged before wall-clock
+   * times were tracked (those only ever knew `date` + `seconds`).
+   *
+   * NOTE: `seconds` — not (end − start) — remains the billing source of truth,
+   * so nothing here can shift money on an existing entry. When `startedAt` is
+   * set the two are kept consistent: editing either end of the range rewrites
+   * `seconds`, and editing the duration moves the implied end time.
+   */
+  startedAt: number | null
   /** Accumulated finalized duration in seconds (excludes any live running span). */
   seconds: number
   /** epoch ms if the timer is currently running for this entry, else null. */
@@ -74,6 +87,15 @@ export interface Expense {
   /** Set once this expense has been placed on an invoice (billable only). */
   invoiceId: string | null
   note: string
+  /**
+   * Object path inside the private `receipts` Supabase Storage bucket, e.g.
+   * `<uid>/<expenseId>-<ts>.jpg`. Null when no receipt photo is attached.
+   *
+   * Only the PATH lives in state — never the image bytes. The whole app state
+   * is upserted as one JSON blob on every debounced save, so inlining photos
+   * would re-upload every receipt on every keystroke.
+   */
+  receiptPath: string | null
   createdAt: number
 }
 
@@ -89,6 +111,13 @@ export interface Invoice {
   clientId: string
   number: string
   issuedDate: string // YYYY-MM-DD
+  /**
+   * When payment is due, 'YYYY-MM-DD'. Frozen at creation from
+   * `issuedDate + settings.netDays` so later changing your default terms can't
+   * retroactively make an old invoice overdue. Null on legacy invoices, which
+   * are treated as having no due date (never "overdue", only "outstanding").
+   */
+  dueDate: string | null
   periodStart: string // YYYY-MM-DD
   periodEnd: string // YYYY-MM-DD
   /** Entries frozen onto this invoice (kept for reference / un-billing). */
@@ -120,6 +149,8 @@ export interface Settings {
   invoiceCounter: number
   /** Currency symbol prefix, e.g. "$". */
   currency: string
+  /** Default payment terms in days; stamped onto each new invoice's dueDate. */
+  netDays: number
 }
 
 export interface TractionState {

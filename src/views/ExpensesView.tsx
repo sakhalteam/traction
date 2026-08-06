@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { Expense, TractionState } from '../types'
 import { EXPENSE_CATEGORIES, formatDate, formatMoney, makeExpense, todayISO } from '../store'
+import { supabase } from '../supabaseClient'
+import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../receipts'
 
 export function ExpensesView({
   state, onAdd, onUpdate, onDelete,
@@ -178,10 +180,103 @@ function ExpenseRow({
         <span className="entry-dur">{formatMoney(expense.amount, cur)}</span>
       </div>
       <div className="entry-actions">
+        {/* Receipts stay available even once invoiced — that's exactly when a
+            client is most likely to ask for proof of a charge. */}
+        <ReceiptControl expense={expense} onUpdate={onUpdate} />
         {!invoiced && <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>}
         {!invoiced && <button className="icon-btn danger" title="Delete" onClick={() => onDelete(expense.id)}>✕</button>}
       </div>
     </li>
+  )
+}
+
+/**
+ * Attach / view / remove the receipt photo for one expense. Only the object
+ * path is written back onto the expense — the image itself lives in Storage.
+ */
+function ReceiptControl({
+  expense, onUpdate,
+}: {
+  expense: Expense
+  onUpdate: (x: Expense) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const attached = !!expense.receiptPath
+
+  async function pick(file: File | undefined) {
+    if (!file) return
+    setBusy(true)
+    setError(null)
+    try {
+      // Replacing? Drop the old object so we don't leave it orphaned.
+      const previous = expense.receiptPath
+      const path = await uploadReceipt(supabase, expense.id, file)
+      onUpdate({ ...expense, receiptPath: path })
+      if (previous) await deleteReceipt(supabase, previous)
+    } catch (err) {
+      setError(err instanceof ReceiptError ? err.message : 'Upload failed.')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  async function view() {
+    if (!expense.receiptPath) return
+    setBusy(true)
+    setError(null)
+    try {
+      // Opened rather than embedded so it prints straight from the browser.
+      window.open(await receiptUrl(supabase, expense.receiptPath), '_blank', 'noopener')
+    } catch (err) {
+      setError(err instanceof ReceiptError ? err.message : 'Could not open that receipt.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    if (!expense.receiptPath) return
+    setBusy(true)
+    setError(null)
+    const path = expense.receiptPath
+    onUpdate({ ...expense, receiptPath: null })
+    await deleteReceipt(supabase, path)
+    setBusy(false)
+  }
+
+  return (
+    <span className="receipt-control">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={e => pick(e.target.files?.[0])}
+      />
+      {attached ? (
+        <>
+          <button className="icon-btn has-receipt" title="View receipt" disabled={busy} onClick={view}>
+            {busy ? '…' : '🧾'}
+          </button>
+          <button className="icon-btn danger subtle" title="Remove receipt" disabled={busy} onClick={remove}>
+            ⊘
+          </button>
+        </>
+      ) : (
+        <button
+          className="icon-btn"
+          title="Attach receipt photo"
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+        >
+          {busy ? '…' : '📎'}
+        </button>
+      )}
+      {error && <span className="receipt-error" title={error}>!</span>}
+    </span>
   )
 }
 

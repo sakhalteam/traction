@@ -39,6 +39,7 @@ export function defaultSettings(): Settings {
     businessAddress: '',
     invoiceCounter: 1,
     currency: '$',
+    netDays: 30,
   }
 }
 
@@ -73,9 +74,10 @@ export function makeService(name: string, defaultRate: number): Service {
 
 export function makeEntry(
   serviceId: string, rate: number, clientId: string | null, date: string,
+  startedAt: number | null = null,
 ): TimeEntry {
   return {
-    id: genId(), clientId, serviceId, note: '', date,
+    id: genId(), clientId, serviceId, note: '', date, startedAt,
     seconds: 0, runningSince: null, rate, invoiceId: null, createdAt: Date.now(),
   }
 }
@@ -83,7 +85,7 @@ export function makeEntry(
 export function makeExpense(date: string): Expense {
   return {
     id: genId(), clientId: null, label: '', amount: 0, category: 'Materials',
-    date, billable: true, invoiceId: null, note: '', createdAt: Date.now(),
+    date, billable: true, invoiceId: null, note: '', receiptPath: null, createdAt: Date.now(),
   }
 }
 
@@ -230,6 +232,98 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
   return { days, totalSeconds, total: Math.round(total * 100) / 100 }
 }
 
+// ---- Wall-clock start/end ------------------------------------------------
+
+/** 'YYYY-MM-DD' for the LOCAL calendar day an epoch ms falls on. */
+export function dateFromEpoch(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** epoch ms → the 'YYYY-MM-DDTHH:mm' string an <input type="datetime-local"> wants. */
+export function toLocalInput(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** "2:24 PM" — local clock time for an epoch ms. */
+export function formatTimeOfDay(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+/** Inverse of toLocalInput. Returns null for an empty/unparseable value. */
+export function fromLocalInput(value: string): number | null {
+  if (!value) return null
+  const ms = new Date(value).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
+/**
+ * The wall-clock span an entry represents. Derived from `startedAt` + `seconds`
+ * (the billing truth), so it can never disagree with what gets invoiced.
+ * Null for legacy entries that never recorded a start time.
+ */
+export function entrySpan(e: TimeEntry): { start: number; end: number } | null {
+  if (e.startedAt == null) return null
+  return { start: e.startedAt, end: e.startedAt + e.seconds * 1000 }
+}
+
+export interface RangeProblem { field: 'start' | 'end'; message: string }
+
+/**
+ * Common-sense guardrails for a hand-edited time range: nothing in the future,
+ * and the end can't precede the start. Returns null when the range is fine.
+ */
+export function validateRange(start: number, end: number, now: number = Date.now()): RangeProblem | null {
+  // A minute of slack absorbs clock skew and the seconds the user can't see.
+  const future = now + 60_000
+  if (start > future) return { field: 'start', message: "Start time can't be in the future." }
+  if (end > future) return { field: 'end', message: "End time can't be in the future." }
+  if (end < start) return { field: 'end', message: "End time can't be before the start time." }
+  return null
+}
+
+// ---- Accounts receivable aging -------------------------------------------
+
+/** issuedDate + netDays, as 'YYYY-MM-DD'. */
+export function addDays(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + days)
+  return dateFromEpoch(dt.getTime())
+}
+
+/** Whole days between two 'YYYY-MM-DD' dates (b − a), calendar-day accurate. */
+export function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  const ms = Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)
+  return Math.round(ms / 86_400_000)
+}
+
+export type AgingBucket = 'current' | '1-30' | '31-60' | '60+'
+
+export const AGING_LABELS: Record<AgingBucket, string> = {
+  current: 'Current', '1-30': '1–30 days', '31-60': '31–60 days', '60+': '60+ days',
+}
+
+/**
+ * How overdue a sent invoice is. Legacy invoices with no dueDate are always
+ * 'current' — we can't claim something is late without knowing when it was due.
+ */
+export function agingOf(invoice: Pick<Invoice, 'dueDate'>, today: string): {
+  bucket: AgingBucket; daysOverdue: number
+} {
+  if (!invoice.dueDate) return { bucket: 'current', daysOverdue: 0 }
+  const overdue = daysBetween(invoice.dueDate, today)
+  if (overdue <= 0) return { bucket: 'current', daysOverdue: 0 }
+  if (overdue <= 30) return { bucket: '1-30', daysOverdue: overdue }
+  if (overdue <= 60) return { bucket: '31-60', daysOverdue: overdue }
+  return { bucket: '60+', daysOverdue: overdue }
+}
+
 // ---- Persistence ---------------------------------------------------------
 
 /** Fill any missing fields so older/partial saved blobs hydrate safely. */
@@ -238,6 +332,16 @@ export function hydrateState(raw: unknown): TractionState {
   const clients = (Array.isArray(r.clients) ? r.clients : []).map((c): Client => ({
     ...c,
     rates: c.rates && typeof c.rates === 'object' ? c.rates : {},
+  }))
+  // Legacy entries/expenses predate wall-clock times and receipt attachments.
+  // Default them to null rather than inventing a start time we don't know.
+  const entries = (Array.isArray(r.entries) ? r.entries : []).map((e): TimeEntry => ({
+    ...e,
+    startedAt: typeof e.startedAt === 'number' ? e.startedAt : null,
+  }))
+  const expenses = (Array.isArray(r.expenses) ? r.expenses : []).map((x): Expense => ({
+    ...x,
+    receiptPath: typeof x.receiptPath === 'string' ? x.receiptPath : null,
   }))
   const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
     // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.
@@ -251,13 +355,15 @@ export function hydrateState(raw: unknown): TractionState {
         : Array.isArray(legacy) ? legacy.map(x => ({ id: x.id, label: x.label, amount: x.amount }))
         : [],
       paidDate: i.paidDate ?? null,
+      // Legacy invoices have no due date — never retroactively mark them late.
+      dueDate: i.dueDate ?? null,
     }
   })
   return {
     clients,
     services: Array.isArray(r.services) ? r.services : [],
-    entries: Array.isArray(r.entries) ? r.entries : [],
-    expenses: Array.isArray(r.expenses) ? r.expenses : [],
+    entries,
+    expenses,
     invoices,
     settings: { ...defaultSettings(), ...(r.settings ?? {}) },
   }

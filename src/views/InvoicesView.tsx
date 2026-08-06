@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
-import { buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, lineAmount, todayISO } from '../store'
+import {
+  buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, lineAmount, todayISO,
+  agingOf, AGING_LABELS, type AgingBucket,
+} from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 
 export function InvoicesView({
@@ -186,17 +189,25 @@ function InvoiceList({ state, onOpen }: { state: TractionState; onOpen: (id: str
   const invoices = [...state.invoices].sort((a, b) => b.createdAt - a.createdAt)
   const cur = state.settings.currency
 
+  const today = todayISO()
+
   // Accounts receivable: sent-but-unpaid = money owed; draft = not yet billed out.
+  // Outstanding money is also split by how far past its due date it is.
   const ar = useMemo(() => {
     let outstanding = 0, drafted = 0, paid = 0
+    const aging: Record<AgingBucket, number> = { current: 0, '1-30': 0, '31-60': 0, '60+': 0 }
     for (const inv of state.invoices) {
       const t = invoiceTotal(inv, state.entries)
-      if (inv.status === 'sent') outstanding += t
-      else if (inv.status === 'draft') drafted += t
+      if (inv.status === 'sent') {
+        outstanding += t
+        aging[agingOf(inv, today).bucket] += t
+      } else if (inv.status === 'draft') drafted += t
       else if (inv.status === 'paid') paid += t
     }
-    return { outstanding, drafted, paid }
-  }, [state.invoices, state.entries])
+    return { outstanding, drafted, paid, aging }
+  }, [state.invoices, state.entries, today])
+
+  const overdueTotal = ar.aging['1-30'] + ar.aging['31-60'] + ar.aging['60+']
 
   if (invoices.length === 0) {
     return <p className="hint">No invoices yet.</p>
@@ -207,7 +218,9 @@ function InvoiceList({ state, onOpen }: { state: TractionState; onOpen: (id: str
         <div className="ar-tile owed">
           <span className="ar-label">Owed to you</span>
           <span className="ar-value">{formatMoney(ar.outstanding, cur)}</span>
-          <span className="ar-sub">sent, unpaid</span>
+          <span className="ar-sub">
+            {overdueTotal > 0 ? `${formatMoney(overdueTotal, cur)} of it overdue` : 'sent, unpaid'}
+          </span>
         </div>
         <div className="ar-tile">
           <span className="ar-label">Draft</span>
@@ -220,17 +233,35 @@ function InvoiceList({ state, onOpen }: { state: TractionState; onOpen: (id: str
           <span className="ar-sub">paid</span>
         </div>
       </div>
+      {overdueTotal > 0 && (
+        <div className="aging-strip">
+          <span className="aging-title">Overdue</span>
+          {(['1-30', '31-60', '60+'] as AgingBucket[]).map(b => (
+            ar.aging[b] > 0 && (
+              <span key={b} className={`aging-chip b${b.replace('+', 'plus')}`}>
+                {AGING_LABELS[b]}<strong>{formatMoney(ar.aging[b], cur)}</strong>
+              </span>
+            )
+          ))}
+        </div>
+      )}
       <h3>Invoices</h3>
       <ul className="invoice-list">
         {invoices.map(inv => {
           const client = state.clients.find(c => c.id === inv.clientId)
           const total = invoiceTotal(inv, state.entries)
+          // Only a sent, unpaid invoice can be late.
+          const age = inv.status === 'sent' ? agingOf(inv, today) : null
           return (
             <li key={inv.id} className="invoice-row" onClick={() => onOpen(inv.id)}>
               <span className="inv-num">{inv.number}</span>
               <span className="inv-client">{client?.name ?? 'Unknown'}</span>
               <span className="dim inv-date">{formatDate(inv.issuedDate)}</span>
-              <span className={`status-pill ${inv.status}`}>{inv.status}</span>
+              {age && age.daysOverdue > 0
+                ? <span className="status-pill overdue" title={`Due ${formatDate(inv.dueDate!)}`}>
+                    {age.daysOverdue}d late
+                  </span>
+                : <span className={`status-pill ${inv.status}`}>{inv.status}</span>}
               <span className="inv-total">{formatMoney(total, cur)}</span>
             </li>
           )

@@ -33,3 +33,52 @@ create policy "own rows - delete" on public.traction_states
 -- Explicit grants (harmless before, required after Supabase's Oct 30 2026 change
 -- where new public-schema tables no longer inherit default role grants).
 grant select, insert, update, delete on public.traction_states to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- Receipt photos
+-- ---------------------------------------------------------------------------
+-- Expense receipts live in Storage, NOT in state_json. The whole app state is
+-- upserted as one JSON blob on every debounced save, so inlining image bytes
+-- would re-upload every receipt on every keystroke. Only the object path is
+-- stored on the expense (Expense.receiptPath).
+--
+-- Objects are keyed `<user_id>/<expenseId>-<timestamp>.jpg`, so the first path
+-- segment is the owner and every policy below checks it against auth.uid().
+
+insert into storage.buckets (id, name, public)
+values ('receipts', 'receipts', false)
+on conflict (id) do nothing;
+
+-- Private bucket: reads go through short-lived signed URLs, never public links.
+drop policy if exists "receipts - own read" on storage.objects;
+create policy "receipts - own read" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'receipts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "receipts - own insert" on storage.objects;
+create policy "receipts - own insert" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'receipts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "receipts - own update" on storage.objects;
+create policy "receipts - own update" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'receipts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "receipts - own delete" on storage.objects;
+create policy "receipts - own delete" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'receipts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );

@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import { buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney } from '../store'
+import { ReceiptLink } from './ReceiptLink'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
@@ -64,6 +65,7 @@ export function InvoiceDetail({
             <h1>INVOICE</h1>
             <div className="inv-numline">{invoice.number}</div>
             <div className="dim">Issued {formatDate(invoice.issuedDate)}</div>
+            {invoice.dueDate && <div className="due-line">Due {formatDate(invoice.dueDate)}</div>}
             <div className="dim">Period {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}</div>
             {invoice.paidDate && <div className="dim">Paid {formatDate(invoice.paidDate)}</div>}
             <div className={`status-pill ${invoice.status} big-status`}>{invoice.status}</div>
@@ -154,7 +156,31 @@ export function InvoiceDetail({
           />
         )}
 
+        <InvoiceReceipts invoice={invoice} state={state} />
+
         <InvoiceNotes invoice={invoice} onUpdate={onUpdate} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Receipt photos backing this invoice's charges. Stays visible after the
+ * invoice is locked/paid — that's precisely when a client asks for proof.
+ * Never printed: it's a lookup tool, not part of the invoice itself.
+ */
+function InvoiceReceipts({ invoice, state }: { invoice: Invoice; state: TractionState }) {
+  const withReceipts = state.expenses.filter(
+    x => x.invoiceId === invoice.id && x.receiptPath,
+  )
+  if (withReceipts.length === 0) return null
+  return (
+    <div className="invoice-receipts no-print">
+      <span className="label">Receipts on file</span>
+      <div className="receipt-row">
+        {withReceipts.map(x => (
+          <ReceiptLink key={x.id} path={x.receiptPath!} label={x.label || 'Receipt'} />
+        ))}
       </div>
     </div>
   )
