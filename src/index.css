@@ -427,6 +427,10 @@ textarea { resize: vertical; }
 /* Wall-clock span on a collapsed entry row */
 .entry-span { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
+/* Continue (Toggl-style): starts a NEW entry with this one's details */
+.icon-btn.continue-btn { color: var(--accent); font-size: 0.8rem; }
+.icon-btn.continue-btn:hover { background: rgba(34, 197, 94, 0.16); }
+
 /* ===== Receipt attachments ===== */
 .receipt-control { display: inline-flex; align-items: center; gap: 2px; }
 .receipt-control .icon-btn:disabled { opacity: 0.5; cursor: default; }

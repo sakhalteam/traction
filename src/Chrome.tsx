@@ -1,10 +1,11 @@
 import type { User } from '@supabase/supabase-js'
 
-export type View = 'timer' | 'clients' | 'services' | 'log' | 'expenses' | 'invoices' | 'reports' | 'settings'
+// The old separate 'log' view is gone — the Timer screen IS the log now, the
+// way Toggl's home screen works: timer on top, date-grouped history below.
+export type View = 'timer' | 'clients' | 'services' | 'expenses' | 'invoices' | 'reports' | 'settings'
 
 const NAV: { id: View; label: string }[] = [
   { id: 'timer', label: 'Timer' },
-  { id: 'log', label: 'Log' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'clients', label: 'Clients' },
   { id: 'services', label: 'Services' },

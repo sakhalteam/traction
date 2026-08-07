@@ -6,7 +6,7 @@ import {
 } from '../store'
 
 export function EntryRow({
-  entry, state, now, onUpdate, onDelete, onStop, showDate = false,
+  entry, state, now, onUpdate, onDelete, onStop, onContinue, showDate = false,
 }: {
   entry: TimeEntry
   state: TractionState
@@ -14,6 +14,8 @@ export function EntryRow({
   onUpdate: (e: TimeEntry) => void
   onDelete: (id: string) => void
   onStop?: (id: string) => void
+  /** Toggl-style continue: starts a NEW entry carrying this one's details. */
+  onContinue?: (e: TimeEntry) => void
   showDate?: boolean
 }) {
   const [editing, setEditing] = useState(false)
@@ -65,6 +67,17 @@ export function EntryRow({
       <div className="entry-actions">
         {isRunning && onStop && (
           <button className="icon-btn danger" title="Stop" onClick={() => onStop(entry.id)}>■</button>
+        )}
+        {/* Continue works even on invoiced entries — it never touches this one,
+            it starts a separate new entry with the same job details. */}
+        {!isRunning && onContinue && (
+          <button
+            className="icon-btn continue-btn"
+            title="Continue — starts a new entry with these details"
+            onClick={() => onContinue(entry)}
+          >
+            ▶
+          </button>
         )}
         {!isRunning && !invoiced && (
           <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>

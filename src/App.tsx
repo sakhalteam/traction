@@ -15,7 +15,6 @@ import { Chrome, type View } from './Chrome'
 import { TimerView } from './views/TimerView'
 import { ClientsView } from './views/ClientsView'
 import { ServicesView } from './views/ServicesView'
-import { LogView } from './views/LogView'
 import { ExpensesView } from './views/ExpensesView'
 import { InvoicesView } from './views/InvoicesView'
 import { ReportsView } from './views/ReportsView'
@@ -378,6 +377,7 @@ export default function App() {
             onStop={stopTimer}
             onUpdateEntry={updateEntry}
             onDeleteEntry={deleteEntry}
+            onAddManual={addManualEntry}
             onAddService={addService}
             onAddClient={addClient}
           />
@@ -397,14 +397,6 @@ export default function App() {
             onAdd={addService}
             onUpdate={updateService}
             onDelete={deleteService}
-          />
-        )}
-        {view === 'log' && (
-          <LogView
-            state={state}
-            onUpdateEntry={updateEntry}
-            onDeleteEntry={deleteEntry}
-            onAddManual={addManualEntry}
           />
         )}
         {view === 'expenses' && (
