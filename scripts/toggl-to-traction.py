@@ -274,7 +274,8 @@ def main() -> None:
             e["invoiceId"] = inv_id
         period_start, period_end = ce[0]["date"], ce[-1]["date"]
         invoices.append({
-            "id": inv_id, "clientId": cid, "number": f"{counter:04d}",
+            # Same format App.tsx mints, so backfills and new invoices match.
+            "id": inv_id, "clientId": cid, "number": f"INV-{counter:04d}",
             "issuedDate": period_end, "dueDate": add_days(period_end, 30),
             "periodStart": period_start, "periodEnd": period_end,
             "entryIds": [e["id"] for e in ce],
