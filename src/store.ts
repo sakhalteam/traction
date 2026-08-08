@@ -239,6 +239,36 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
   return { days, totalSeconds, total: Math.round(total * 100) / 100 }
 }
 
+// ---- Payment state --------------------------------------------------------
+
+/** Where an entry sits in the money pipeline: logged → invoiced → collected. */
+export type PaymentState = 'unbilled' | 'invoiced' | 'paid'
+
+export const PAYMENT_LABELS: Record<PaymentState, string> = {
+  unbilled: 'unbilled', invoiced: 'invoiced', paid: 'paid',
+}
+
+/**
+ * Whether an entry has been paid for — DERIVED from the invoice it sits on,
+ * never stored on the entry itself.
+ *
+ * Deliberately not a `paid` flag on TimeEntry: that would be a second source of
+ * truth able to disagree with the invoice ("entry says paid, invoice says
+ * draft"), and money data that can contradict itself is worse than none. An
+ * invoice's status is the single authority; this just reads it.
+ */
+export function paymentStateOf(
+  entry: Pick<TimeEntry, 'invoiceId'>,
+  invoices: Pick<Invoice, 'id' | 'status'>[],
+): PaymentState {
+  if (!entry.invoiceId) return 'unbilled'
+  const invoice = invoices.find(i => i.id === entry.invoiceId)
+  // A dangling invoiceId means the invoice went missing, not that the work is
+  // free to bill again — stay conservative rather than inviting a double-bill.
+  if (!invoice) return 'invoiced'
+  return invoice.status === 'paid' ? 'paid' : 'invoiced'
+}
+
 // ---- Wall-clock start/end ------------------------------------------------
 
 /** 'YYYY-MM-DD' for the LOCAL calendar day an epoch ms falls on. */

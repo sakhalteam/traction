@@ -15,6 +15,8 @@
   --accent-2: #10b981;
   --accent-glow: rgba(34, 197, 94, 0.35);
   --indigo: #6366f1;
+  --amber: #f59e0b;
+  --sky: #38bdf8;
   --danger: #f43f5e;
   --radius: 16px;
   --radius-sm: 10px;
@@ -227,12 +229,19 @@ textarea { resize: vertical; }
 .entry-sub { font-size: 0.8rem; color: var(--text-dim); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
 .entry-figures { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-variant-numeric: tabular-nums; }
 .entry-dur { font-weight: 600; }
-.entry-amt { color: var(--accent); font-size: 0.85rem; }
+/* Money colour tracks payment state, derived from the entry's invoice:
+   green = collected, amber = invoiced and waiting, blue = not billed yet. */
+.entry-amt { color: var(--sky); font-size: 0.85rem; }
+.entry-amt.invoiced { color: var(--amber); }
+.entry-amt.paid { color: var(--accent); }
 .entry-actions { display: flex; gap: 2px; }
 
 .client-tag { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; }
 .client-tag.general { background: rgba(148, 163, 184, 0.16); color: var(--text-dim); }
 .invoiced-tag { background: rgba(148, 163, 184, 0.16); color: var(--text-faint); padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; }
+.pay-tag { padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; }
+.pay-tag.invoiced { background: rgba(245, 158, 11, 0.16); color: var(--amber); }
+.pay-tag.paid { background: rgba(34, 197, 94, 0.16); color: var(--accent); }
 
 .entry-editor, .manual-form { width: 100%; display: flex; flex-direction: column; gap: 4px; }
 .editor-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
@@ -268,6 +277,7 @@ textarea { resize: vertical; }
 .builder-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .grand { display: flex; flex-direction: column; }
 .builder-foot .btn { width: auto; }
+.builder-buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ===== Invoice list ===== */
 .invoice-row { display: grid; grid-template-columns: 90px 1fr auto 70px 90px; gap: 12px; align-items: center; padding: 11px 12px; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border); cursor: pointer; }

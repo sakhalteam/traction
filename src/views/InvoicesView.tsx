@@ -10,7 +10,10 @@ export function InvoicesView({
   state, onCreate, onSetStatus, onUpdate, onDelete, onAddCharge, onUpdateCharge, onRemoveCharge,
 }: {
   state: TractionState
-  onCreate: (clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string) => Invoice
+  onCreate: (
+    clientId: string, entryIds: string[], expenseIds: string[],
+    periodStart: string, periodEnd: string, opts?: { alreadyPaid?: boolean },
+  ) => Invoice
   onSetStatus: (id: string, status: InvoiceStatus) => void
   onUpdate: (i: Invoice) => void
   onDelete: (id: string) => void
@@ -49,7 +52,10 @@ function InvoiceBuilder({
   state, onCreate,
 }: {
   state: TractionState
-  onCreate: (clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string) => void
+  onCreate: (
+    clientId: string, entryIds: string[], expenseIds: string[],
+    periodStart: string, periodEnd: string, opts?: { alreadyPaid?: boolean },
+  ) => void
 }) {
   const clients = state.clients.filter(c => !c.archived)
   const cur = state.settings.currency
@@ -89,16 +95,20 @@ function InvoiceBuilder({
   })
   const resetClient = (id: string) => { setClientId(id); setExcluded(new Set()); setExcludedExp(new Set()) }
 
-  function create() {
+  function create(opts: { alreadyPaid?: boolean } = {}) {
     if (!clientId || (included.length === 0 && includedExp.length === 0)) return
     const dates = [...included.map(e => e.date), ...includedExp.map(x => x.date)].sort()
     const periodStart = start || dates[0]
-    const periodEnd = end || dates[dates.length - 1]
-    onCreate(clientId, included.map(e => e.id), includedExp.map(x => x.id), periodStart, periodEnd)
+    // An already-paid backfill is dated by the work itself, so ignore the "To"
+    // box (which defaults to today) and use the last day actually worked.
+    const lastWorked = dates[dates.length - 1]
+    const periodEnd = opts.alreadyPaid ? lastWorked : (end || lastWorked)
+    onCreate(clientId, included.map(e => e.id), includedExp.map(x => x.id), periodStart, periodEnd, opts)
     setExcluded(new Set()); setExcludedExp(new Set())
   }
 
   const nothing = candidates.length === 0 && expCandidates.length === 0
+  const nothingPicked = included.length === 0 && includedExp.length === 0
 
   return (
     <div className="panel">
@@ -174,9 +184,27 @@ function InvoiceBuilder({
                 </span>
                 <span className="big-money">{formatMoney(grand, cur)}</span>
               </div>
-              <button className="btn primary big" disabled={included.length === 0 && includedExp.length === 0} onClick={create}>
-                Create invoice
-              </button>
+              <div className="builder-buttons">
+                {/* Records work settled outside traction — cash on the day, an
+                    old paper invoice — as a closed invoice rather than a flag on
+                    each entry, so paid-ness has exactly one source of truth. */}
+                <button
+                  className="btn" disabled={nothingPicked}
+                  title="Record this as already settled — creates a closed, paid invoice"
+                  onClick={() => {
+                    if (confirm(`Record ${formatMoney(grand, cur)} as ALREADY PAID?\n\nThis closes these `
+                      + `${included.length} entr${included.length === 1 ? 'y' : 'ies'} out as a paid invoice, `
+                      + `so they'll stop showing as unbilled. Use this for work you were paid for outside traction.`)) {
+                      create({ alreadyPaid: true })
+                    }
+                  }}
+                >
+                  ✓ Already paid
+                </button>
+                <button className="btn primary big" disabled={nothingPicked} onClick={() => create()}>
+                  Create invoice
+                </button>
+              </div>
             </div>
           </>
         )

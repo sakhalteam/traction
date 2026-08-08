@@ -264,6 +264,7 @@ export default function App() {
   // ---- Invoice actions ----
   const createInvoice = useCallback((
     clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string,
+    opts: { alreadyPaid?: boolean } = {},
   ): Invoice => {
     const id = crypto.randomUUID()
     let created: Invoice | null = null
@@ -275,7 +276,10 @@ export default function App() {
       const expensesSnapshot = s.expenses
         .filter(x => expenseIds.includes(x.id))
         .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0 }))
-      const issuedDate = todayISO()
+      // Work settled outside traction (cash on the day, an old paper invoice) is
+      // dated to when it happened, not today — issuing a 2025 job "today" would
+      // land it in the wrong month in Reports.
+      const issuedDate = opts.alreadyPaid ? periodEnd : todayISO()
       const invoice: Invoice = {
         id, clientId, number: num, issuedDate,
         // Freeze the terms in effect today; changing netDays later must not
@@ -283,7 +287,9 @@ export default function App() {
         dueDate: addDays(issuedDate, s.settings.netDays),
         periodStart, periodEnd, entryIds: [...entryIds], snapshot,
         expenseIds: [...expenseIds], expensesSnapshot,
-        status: 'draft', paidDate: null, notes: '', createdAt: Date.now(),
+        status: opts.alreadyPaid ? 'paid' : 'draft',
+        paidDate: opts.alreadyPaid ? periodEnd : null,
+        notes: '', createdAt: Date.now(),
       }
       created = invoice
       return {

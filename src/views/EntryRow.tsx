@@ -3,6 +3,7 @@ import type { TimeEntry, TractionState } from '../types'
 import {
   formatDuration, formatMoney, liveSeconds, lineAmount,
   toLocalInput, fromLocalInput, dateFromEpoch, validateRange, entrySpan, formatTimeOfDay,
+  paymentStateOf,
 } from '../store'
 
 export function EntryRow({
@@ -25,6 +26,7 @@ export function EntryRow({
     : 'General'
   const secs = liveSeconds(entry, now)
   const invoiced = !!entry.invoiceId
+  const payment = paymentStateOf(entry, state.invoices)
   const isRunning = !!entry.runningSince
   // Only meaningful once stopped — a running entry's end is still moving.
   const span = isRunning ? null : entrySpan(entry)
@@ -57,12 +59,21 @@ export function EntryRow({
             <span className="entry-span"> · {formatTimeOfDay(span.start)}–{formatTimeOfDay(span.end)}</span>
           )}
           <span> · {formatMoney(entry.rate, state.settings.currency)}/hr</span>
-          {invoiced && <span className="invoiced-tag" title="On an invoice">invoiced</span>}
+          {payment === 'paid' && (
+            <span className="pay-tag paid" title="On an invoice you've marked paid">paid</span>
+          )}
+          {payment === 'invoiced' && (
+            <span className="pay-tag invoiced" title="On an invoice, not yet paid">invoiced</span>
+          )}
         </div>
       </div>
       <div className="entry-figures">
         <span className="entry-dur">{isRunning ? 'running…' : formatDuration(secs)}</span>
-        <span className="entry-amt">{formatMoney(lineAmount(secs, entry.rate), state.settings.currency)}</span>
+        {/* Colour is derived from the invoice, so it can never claim "paid"
+            about work whose invoice still says draft. */}
+        <span className={`entry-amt ${payment}`}>
+          {formatMoney(lineAmount(secs, entry.rate), state.settings.currency)}
+        </span>
       </div>
       <div className="entry-actions">
         {isRunning && onStop && (
