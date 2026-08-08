@@ -5,21 +5,26 @@ import {
   toLocalInput, fromLocalInput, dateFromEpoch, validateRange, entrySpan, formatTimeOfDay,
   paymentStateOf,
 } from '../store'
+import { JobPhotos } from './JobPhotos'
 
 export function EntryRow({
   entry, state, now, onUpdate, onDelete, onStop, onContinue, showDate = false,
+  onAttachPhoto, onRemovePhoto,
 }: {
   entry: TimeEntry
   state: TractionState
   now: number
   onUpdate: (e: TimeEntry) => void
   onDelete: (id: string) => void
+  onAttachPhoto?: (entryId: string, file: File) => Promise<void>
+  onRemovePhoto?: (entryId: string) => Promise<void>
   onStop?: (id: string) => void
   /** Toggl-style continue: starts a NEW entry carrying this one's details. */
   onContinue?: (e: TimeEntry) => void
   showDate?: boolean
 }) {
   const [editing, setEditing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const service = state.services.find(s => s.id === entry.serviceId)
   const clientName = entry.clientId
     ? (state.clients.find(c => c.id === entry.clientId)?.name ?? 'Unknown')
@@ -44,8 +49,13 @@ export function EntryRow({
     )
   }
 
+  const photos = entry.photoPaths ?? []
+  // Hidden until there's something to show or somewhere to put it, so the row
+  // stays as light as it is today for anyone not using photos.
+  const showPhotos = photos.length > 0 || (expanded && !!onAttachPhoto)
+
   return (
-    <li className={`entry-row ${isRunning ? 'live' : ''}`}>
+    <li className={`entry-row ${isRunning ? 'live' : ''} ${showPhotos ? 'has-photos' : ''}`}>
       <span className="entry-swatch" style={{ background: service?.color ?? '#64748b' }} />
       <div className="entry-main">
         <div className="entry-title">
@@ -78,6 +88,18 @@ export function EntryRow({
         </span>
       </div>
       <div className="entry-actions">
+        {/* Camera toggle. Stays available on invoiced entries — a photo is a
+            record of the work, not a billing input, so adding one later can't
+            change what an invoice says. */}
+        {onAttachPhoto && !isRunning && (
+          <button
+            className={`icon-btn ${photos.length > 0 ? 'has-shots' : ''}`}
+            title={photos.length > 0 ? `${photos.length} job photo${photos.length === 1 ? '' : 's'}` : 'Add a job photo'}
+            onClick={() => setExpanded(v => !v)}
+          >
+            📷{photos.length > 0 && <span className="shot-count">{photos.length}</span>}
+          </button>
+        )}
         {isRunning && onStop && (
           <button className="icon-btn danger" title="Stop" onClick={() => onStop(entry.id)}>■</button>
         )}
@@ -99,6 +121,16 @@ export function EntryRow({
           <button className="icon-btn danger" title="Delete" onClick={() => onDelete(entry.id)}>✕</button>
         )}
       </div>
+      {showPhotos && (
+        <div className="entry-photos">
+          <JobPhotos
+            paths={photos}
+            editable={!!onAttachPhoto && expanded}
+            onAdd={onAttachPhoto ? f => onAttachPhoto(entry.id, f) : undefined}
+            onRemove={onRemovePhoto ? () => onRemovePhoto(entry.id) : undefined}
+          />
+        </div>
+      )}
     </li>
   )
 }

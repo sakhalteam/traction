@@ -2,13 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Client, Service, TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
-  paymentStateOf, rollupPaymentState, isMixedPayment, type PaymentState,
+  paymentStateOf, rollupPaymentState, isMixedPayment, daysBetween, type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
 import { EntryRow } from './EntryRow'
 
 /** Sentinel <option> value meaning "open the create form", not a real id. */
 const NEW_OPTION = '__new__'
+
+/**
+ * Don't nag about a job you finished an hour ago — wait until work has had a
+ * chance to accumulate. Tuned low enough that a single day's work still
+ * surfaces within the week.
+ */
+const NUDGE_AFTER_DAYS = 3
 
 const PAY_HINT: Record<PaymentState, string> = {
   unbilled: "Not on an invoice yet — this is money you still have to bill",
@@ -18,8 +25,12 @@ const PAY_HINT: Record<PaymentState, string> = {
 
 export function TimerView({
   state, onStart, onStop, onUpdateEntry, onDeleteEntry, onAddManual, onAddService, onAddClient,
+  onGoInvoice, onAttachPhoto, onRemovePhoto,
 }: {
   state: TractionState
+  onGoInvoice: (clientId?: string) => void
+  onAttachPhoto: (entryId: string, file: File) => Promise<void>
+  onRemovePhoto: (entryId: string) => Promise<void>
   onStart: (serviceId: string, clientId: string | null, rate: number, note: string) => void
   onStop: (id: string) => void
   onUpdateEntry: (e: TimeEntry) => void
@@ -92,6 +103,33 @@ export function TimerView({
       amount: all.reduce((s, e) => s + lineAmount(liveSeconds(e, now), e.rate), 0),
     }
   }, [byDate, now])
+
+  /**
+   * Clients sitting on billable unbilled work that's had time to settle.
+   * The whole point is that invoicing stops depending on remembering to check:
+   * finished work surfaces itself, with the amount already totalled.
+   */
+  const readyToInvoice = useMemo(() => {
+    const today = todayISO()
+    const byClient = new Map<string, { amount: number; count: number; oldest: string }>()
+    for (const e of state.entries) {
+      // Rate 0 is archived/unrated work — there's nothing to bill for it.
+      if (!e.clientId || e.invoiceId || e.runningSince || e.rate === 0) continue
+      const cur = byClient.get(e.clientId) ?? { amount: 0, count: 0, oldest: e.date }
+      cur.amount += lineAmount(e.seconds, e.rate)
+      cur.count += 1
+      if (e.date < cur.oldest) cur.oldest = e.date
+      byClient.set(e.clientId, cur)
+    }
+    return [...byClient.entries()]
+      .map(([id, v]) => ({
+        id, ...v,
+        name: state.clients.find(c => c.id === id)?.name ?? 'Unknown',
+        age: daysBetween(v.oldest, today),
+      }))
+      .filter(c => c.age >= NUDGE_AFTER_DAYS)
+      .sort((a, b) => b.amount - a.amount)
+  }, [state.entries, state.clients])
 
   // Recent distinct service+client combos, for one-tap resume.
   const recentJobs = useMemo(() => {
@@ -180,8 +218,32 @@ export function TimerView({
     setCreating(null)
   }
 
+  const lastJob = recentJobs[0] ?? null
+
   return (
     <div className="view timer-view">
+      {readyToInvoice.length > 0 && (
+        <div className="panel nudge-panel">
+          <div className="panel-head">
+            <h3>Ready to invoice</h3>
+            <span className="dim tiny">unbilled for {NUDGE_AFTER_DAYS}+ days</span>
+          </div>
+          <ul className="nudge-list">
+            {readyToInvoice.map(c => (
+              <li key={c.id} className="nudge-row">
+                <div className="nudge-who">
+                  <strong>{c.name}</strong>
+                  <span className="dim tiny">
+                    {c.count} entr{c.count === 1 ? 'y' : 'ies'} · oldest {formatDate(c.oldest)} ({c.age}d)
+                  </span>
+                </div>
+                <span className="nudge-amt">{formatMoney(c.amount, state.settings.currency)}</span>
+                <button className="btn" onClick={() => onGoInvoice(c.id)}>Invoice →</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {running ? (
         <RunningCard
           entry={running}
@@ -194,10 +256,17 @@ export function TimerView({
       ) : (
         <div className="panel start-panel">
           <h2>Track time</h2>
-          {recentJobs.length > 0 && (
+          {/* One tap from a cold start: the job you did last, no dropdowns. */}
+          {lastJob && (
+            <button className="btn primary big again-btn" onClick={() => resume(lastJob)}>
+              <span className="chip-dot" style={{ background: lastJob.color }} />
+              ▶ Again — {lastJob.label}
+            </button>
+          )}
+          {recentJobs.length > 1 && (
             <div className="resume-chips">
-              <span className="quick-label">Resume</span>
-              {recentJobs.map(j => (
+              <span className="quick-label">Or</span>
+              {recentJobs.slice(1).map(j => (
                 <button key={`${j.serviceId}-${j.clientId ?? 'gen'}`} className="chip"
                   onClick={() => resume(j)} title="Start this again">
                   <span className="chip-dot" style={{ background: j.color }} />
@@ -374,6 +443,8 @@ export function TimerView({
                     onDelete={onDeleteEntry}
                     onStop={onStop}
                     onContinue={continueEntry}
+                    onAttachPhoto={onAttachPhoto}
+                    onRemovePhoto={onRemovePhoto}
                   />
                 ))}
               </ul>

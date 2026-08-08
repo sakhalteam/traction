@@ -7,9 +7,12 @@ import {
 import { InvoiceDetail } from './InvoiceDetail'
 
 export function InvoicesView({
-  state, onCreate, onSetStatus, onUpdate, onDelete, onAddCharge, onUpdateCharge, onRemoveCharge,
+  state, initialClientId, onCreate, onSetStatus, onUpdate, onDelete,
+  onAddCharge, onUpdateCharge, onRemoveCharge,
 }: {
   state: TractionState
+  /** Client to open the builder on, set when arriving from a "bill this" button. */
+  initialClientId?: string | null
   onCreate: (
     clientId: string, entryIds: string[], expenseIds: string[],
     periodStart: string, periodEnd: string, opts?: { alreadyPaid?: boolean },
@@ -42,16 +45,21 @@ export function InvoicesView({
 
   return (
     <div className="view no-print">
-      <InvoiceBuilder state={state} onCreate={(...a) => { const inv = onCreate(...a); setOpenId(inv.id) }} />
+      <InvoiceBuilder
+        state={state}
+        initialClientId={initialClientId}
+        onCreate={(...a) => { const inv = onCreate(...a); setOpenId(inv.id) }}
+      />
       <InvoiceList state={state} onOpen={setOpenId} />
     </div>
   )
 }
 
 function InvoiceBuilder({
-  state, onCreate,
+  state, initialClientId, onCreate,
 }: {
   state: TractionState
+  initialClientId?: string | null
   onCreate: (
     clientId: string, entryIds: string[], expenseIds: string[],
     periodStart: string, periodEnd: string, opts?: { alreadyPaid?: boolean },
@@ -59,7 +67,9 @@ function InvoiceBuilder({
 }) {
   const clients = state.clients.filter(c => !c.archived)
   const cur = state.settings.currency
-  const [clientId, setClientId] = useState('')
+  // Arriving from a "bill this client" button opens the builder ready to go;
+  // it's only a starting value, so the dropdown still switches freely after.
+  const [clientId, setClientId] = useState(initialClientId ?? '')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState(todayISO())
   const [excluded, setExcluded] = useState<Set<string>>(new Set())

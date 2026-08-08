@@ -63,6 +63,15 @@ export interface TimeEntry {
   rate: number
   /** Set once this entry has been placed on an invoice. */
   invoiceId: string | null
+  /**
+   * Job photos — before/after shots of the work — as object paths inside the
+   * private `receipts` Storage bucket, same as Expense.receiptPath.
+   *
+   * Paths only, never image bytes: the whole app state is upserted as one JSON
+   * blob on every debounced save, so inlining photos would re-upload every
+   * picture on every keystroke. Absent on entries created before job photos.
+   */
+  photoPaths?: string[]
   createdAt: number
 }
 

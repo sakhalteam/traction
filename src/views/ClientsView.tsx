@@ -9,7 +9,7 @@ export function ClientsView({
   onAdd: (name: string) => Client
   onUpdate: (c: Client) => void
   onDelete: (id: string) => void
-  onGoInvoice: () => void
+  onGoInvoice: (clientId?: string) => void
 }) {
   const [name, setName] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -77,7 +77,7 @@ export function ClientsView({
                       <div className="dim">{u.count} entr{u.count === 1 ? 'y' : 'ies'} · {formatDuration(u.seconds)}</div>
                     </div>
                     {u.count > 0 && (
-                      <button className="btn" onClick={onGoInvoice}>Create invoice →</button>
+                      <button className="btn" onClick={() => onGoInvoice(c.id)}>Create invoice →</button>
                     )}
                   </>
                 )}

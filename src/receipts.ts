@@ -77,6 +77,26 @@ export async function uploadReceipt(
 }
 
 /**
+ * Upload a job photo for a time entry. Shares the `receipts` bucket and its
+ * `<user-id>/…` RLS prefix — the storage rules only care who owns the folder,
+ * not what the image depicts, so a second bucket would buy nothing.
+ */
+export async function uploadJobPhoto(
+  supabase: SupabaseClient, entryId: string, file: File,
+): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new ReceiptError('You need to be signed in to attach a photo.')
+
+  const blob = await downscale(file)
+  const path = `${user.id}/job-${entryId}-${Date.now()}.jpg`
+  const { error } = await supabase.storage
+    .from(RECEIPT_BUCKET)
+    .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+  if (error) throw new ReceiptError(error.message)
+  return path
+}
+
+/**
  * A short-lived signed URL for viewing/printing a receipt. The bucket is
  * private, so this is the only way to read one.
  */

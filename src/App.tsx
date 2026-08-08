@@ -11,7 +11,7 @@ import type { RemoteState } from './store'
 import type {
   Client, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
 } from './types'
-import { deleteReceipt } from './receipts'
+import { deleteReceipt, uploadJobPhoto } from './receipts'
 import { useNow } from './useNow'
 import { Chrome, type CloudStatus, type View } from './Chrome'
 import { TimerView } from './views/TimerView'
@@ -30,6 +30,14 @@ const REMOTE_SAVE_DELAY = 4000
 export default function App() {
   const [state, setStateRaw] = useState<TractionState>(loadLocal)
   const [view, setView] = useState<View>('timer')
+  /** Client to preselect the next time the invoice builder opens, if any. */
+  const [invoiceClient, setInvoiceClient] = useState<string | null>(null)
+
+  /** Jump to the invoice builder, optionally with a client already chosen. */
+  const goInvoice = useCallback((clientId?: string) => {
+    setInvoiceClient(clientId ?? null)
+    setView('invoices')
+  }, [])
   const [user, setUser] = useState<User | null>(null)
   const [cloudStatus, setCloudStatus] = useState<CloudStatus>('idle')
   const remoteSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -203,8 +211,37 @@ export default function App() {
     mutate(s => {
       const existing = s.entries.find(e => e.id === id)
       if (!existing || existing.invoiceId) return s
+      // Don't strand job photos in Storage. Best-effort and deliberately
+      // un-awaited: a failed cleanup must never block deleting the entry.
+      for (const p of existing.photoPaths ?? []) void deleteReceipt(supabase, p)
       return { ...s, entries: s.entries.filter(e => e.id !== id) }
     })
+  }, [mutate])
+
+  /** Attach a job photo: upload first, then record the path on the entry. */
+  const attachEntryPhoto = useCallback(async (entryId: string, file: File) => {
+    const path = await uploadJobPhoto(supabase, entryId, file)
+    mutate(s => ({
+      ...s,
+      entries: s.entries.map(e => e.id === entryId
+        ? { ...e, photoPaths: [...(e.photoPaths ?? []), path] }
+        : e),
+    }))
+  }, [mutate])
+
+  /** Remove the most recent job photo from an entry, and from Storage. */
+  const removeEntryPhoto = useCallback(async (entryId: string) => {
+    let doomed: string | undefined
+    mutate(s => ({
+      ...s,
+      entries: s.entries.map(e => {
+        if (e.id !== entryId) return e
+        const paths = [...(e.photoPaths ?? [])]
+        doomed = paths.pop()
+        return { ...e, photoPaths: paths }
+      }),
+    }))
+    if (doomed) await deleteReceipt(supabase, doomed)
   }, [mutate])
   const addManualEntry = useCallback((
     serviceId: string, clientId: string | null, date: string, seconds: number, rate: number, note: string,
@@ -428,6 +465,9 @@ export default function App() {
             onAddManual={addManualEntry}
             onAddService={addService}
             onAddClient={addClient}
+            onGoInvoice={goInvoice}
+            onAttachPhoto={attachEntryPhoto}
+            onRemovePhoto={removeEntryPhoto}
           />
         )}
         {view === 'clients' && (
@@ -436,7 +476,7 @@ export default function App() {
             onAdd={addClient}
             onUpdate={updateClient}
             onDelete={deleteClient}
-            onGoInvoice={() => setView('invoices')}
+            onGoInvoice={goInvoice}
           />
         )}
         {view === 'services' && (
@@ -458,6 +498,7 @@ export default function App() {
         {view === 'invoices' && (
           <InvoicesView
             state={state}
+            initialClientId={invoiceClient}
             onCreate={createInvoice}
             onSetStatus={setInvoiceStatus}
             onUpdate={updateInvoice}

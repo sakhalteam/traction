@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import { buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney } from '../store'
 import { ReceiptLink } from './ReceiptLink'
+import { JobPhotos } from './JobPhotos'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
@@ -156,10 +157,36 @@ export function InvoiceDetail({
           />
         )}
 
+        <InvoiceJobPhotos invoice={invoice} state={state} />
+
         <InvoiceReceipts invoice={invoice} state={state} />
 
         <InvoiceNotes invoice={invoice} onUpdate={onUpdate} />
       </div>
+    </div>
+  )
+}
+
+/**
+ * Photos of the work this invoice covers.
+ *
+ * Unlike receipts, these DO print. A receipt is evidence you spent something;
+ * a job photo is the thing the client is actually paying for, and showing the
+ * finished hedge next to the hours makes the number self-justifying.
+ *
+ * Read from the live entries rather than the frozen snapshot on purpose — a
+ * photo added after invoicing is new evidence of the same work, and it changes
+ * no money, so there's nothing for the immutable record to protect here.
+ */
+function InvoiceJobPhotos({ invoice, state }: { invoice: Invoice; state: TractionState }) {
+  const paths = state.entries
+    .filter(e => invoice.entryIds.includes(e.id))
+    .flatMap(e => e.photoPaths ?? [])
+  if (paths.length === 0) return null
+  return (
+    <div className="invoice-job-photos">
+      <span className="label">The work</span>
+      <JobPhotos paths={paths} />
     </div>
   )
 }

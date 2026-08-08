@@ -85,7 +85,8 @@ export function makeEntry(
 ): TimeEntry {
   return {
     id: genId(), clientId, serviceId, note: '', date, startedAt,
-    seconds: 0, runningSince: null, rate, invoiceId: null, createdAt: Date.now(),
+    seconds: 0, runningSince: null, rate, invoiceId: null,
+    photoPaths: [], createdAt: Date.now(),
   }
 }
 
@@ -402,6 +403,8 @@ export function hydrateState(raw: unknown): TractionState {
   const entries = (Array.isArray(r.entries) ? r.entries : []).map((e): TimeEntry => ({
     ...e,
     startedAt: typeof e.startedAt === 'number' ? e.startedAt : null,
+    // Entries predating job photos have no array at all.
+    photoPaths: Array.isArray(e.photoPaths) ? e.photoPaths : [],
   }))
   const expenses = (Array.isArray(r.expenses) ? r.expenses : []).map((x): Expense => ({
     ...x,
