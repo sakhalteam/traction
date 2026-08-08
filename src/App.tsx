@@ -2,16 +2,18 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabaseClient'
 import {
-  emptyState, loadLocal, saveLocal, saveRemote, loadRemote, getLocalUpdatedAt,
+  emptyState, isEmptyState, loadLocal, saveLocal, touchLocal, saveRemote, loadRemote,
+  getLocalUpdatedAt, isNewer,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
   addDays,
 } from './store'
+import type { RemoteState } from './store'
 import type {
   Client, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
 } from './types'
 import { deleteReceipt } from './receipts'
 import { useNow } from './useNow'
-import { Chrome, type View } from './Chrome'
+import { Chrome, type CloudStatus, type View } from './Chrome'
 import { TimerView } from './views/TimerView'
 import { ClientsView } from './views/ClientsView'
 import { ServicesView } from './views/ServicesView'
@@ -29,12 +31,46 @@ export default function App() {
   const [state, setStateRaw] = useState<TractionState>(loadLocal)
   const [view, setView] = useState<View>('timer')
   const [user, setUser] = useState<User | null>(null)
-  const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [cloudStatus, setCloudStatus] = useState<CloudStatus>('idle')
   const remoteSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const needsRemoteSave = useRef(false)
 
-  // Persist locally on every change.
-  useEffect(() => { saveLocal(state) }, [state])
+  // Mirror to localStorage on every change. The updated-at stamp sync compares
+  // is bumped in `mutate` instead — only a real edit makes this device newer.
+  // The ref lets async sync callbacks read the current state without re-subscribing.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+    saveLocal(state)
+  }, [state])
+
+  /** Show a transient status in the chrome, then fall back to idle. */
+  const flash = useCallback((status: CloudStatus) => {
+    setCloudStatus(status)
+    setTimeout(() => setCloudStatus('idle'), 1600)
+  }, [])
+
+  /** Take the cloud copy as this device's truth. */
+  const adoptRemote = useCallback((remote: RemoteState) => {
+    setStateRaw(remote.state)
+    saveLocal(remote.state)
+    // Inherit the cloud's stamp rather than claiming we edited just now —
+    // otherwise every pull would leave this device looking like the freshest writer.
+    touchLocal(remote.updatedAt)
+    needsRemoteSave.current = false
+  }, [])
+
+  /**
+   * Does the cloud copy win? Normally that's just "is it newer", but the first
+   * time a device ever sees the cloud row its local stamp isn't trustworthy — it
+   * can be junk left by a build that stamped on page load rather than on edit.
+   * An untouched device therefore yields to the cloud; one holding real unsynced
+   * work still gets to defend it on timestamp.
+   */
+  const cloudWins = useCallback((remote: RemoteState, local: TractionState) => {
+    if (remote.firstSight && isEmptyState(local)) return true
+    return isNewer(remote.updatedAt, getLocalUpdatedAt())
+  }, [])
 
   // ---- Auth ----
   useEffect(() => {
@@ -49,14 +85,9 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     loadRemote(supabase).then(remote => {
-      if (!remote) return
-      const localUpdatedAt = getLocalUpdatedAt()
-      if (!localUpdatedAt || remote.updatedAt > localUpdatedAt) {
-        setStateRaw(remote.state)
-        saveLocal(remote.state)
-      }
+      if (remote && cloudWins(remote, stateRef.current)) adoptRemote(remote)
     })
-  }, [user])
+  }, [user, adoptRemote, cloudWins])
 
   // Re-pull when the tab regains focus, so a stale laptop tab adopts newer work
   // from the PC instead of clobbering it. Skipped while we have unsynced local
@@ -66,13 +97,9 @@ export default function App() {
     const pull = async () => {
       if (document.visibilityState === 'hidden' || needsRemoteSave.current) return
       const remote = await loadRemote(supabase)
-      if (!remote) return
-      const localUpdatedAt = getLocalUpdatedAt()
-      if (!localUpdatedAt || remote.updatedAt > localUpdatedAt) {
-        setStateRaw(remote.state)
-        saveLocal(remote.state)
-        setCloudStatus('saved')
-        setTimeout(() => setCloudStatus('idle'), 1600)
+      if (remote && cloudWins(remote, stateRef.current)) {
+        adoptRemote(remote)
+        flash('pulled')
       }
     }
     window.addEventListener('focus', pull)
@@ -81,7 +108,7 @@ export default function App() {
       window.removeEventListener('focus', pull)
       document.removeEventListener('visibilitychange', pull)
     }
-  }, [user])
+  }, [user, adoptRemote, cloudWins, flash])
 
   const login = useCallback(() => {
     supabase.auth.signInWithOAuth({
@@ -95,25 +122,38 @@ export default function App() {
     setUser(null)
   }, [])
 
-  const scheduleRemoteSave = useCallback((s: TractionState) => {
+  const scheduleRemoteSave = useCallback((s: TractionState, force = false) => {
     needsRemoteSave.current = true
     clearTimeout(remoteSaveTimer.current)
     remoteSaveTimer.current = setTimeout(async () => {
       if (!needsRemoteSave.current) return
       setCloudStatus('saving')
-      const ok = await saveRemote(supabase, s)
-      setCloudStatus(ok ? 'saved' : 'error')
-      if (ok) needsRemoteSave.current = false
-      setTimeout(() => setCloudStatus('idle'), 1600)
+      const result = await saveRemote(supabase, s, { force })
+      if (result === 'stale') {
+        // The cloud holds a version this device never loaded — classic case is a
+        // fresh laptop edited before its first pull landed. Take the cloud copy
+        // rather than flattening a real dataset with a nearly-empty one.
+        const remote = await loadRemote(supabase)
+        if (remote) adoptRemote(remote)
+        flash('pulled')
+        return
+      }
+      if (result === 'saved') needsRemoteSave.current = false
+      flash(result === 'saved' ? 'saved' : 'error')
     }, REMOTE_SAVE_DELAY)
-  }, [])
+  }, [adoptRemote, flash])
 
   /** Single mutation entry point: applies a producer, persists, schedules sync. */
-  const mutate = useCallback((producer: (prev: TractionState) => TractionState) => {
+  const mutate = useCallback((
+    producer: (prev: TractionState) => TractionState,
+    opts: { force?: boolean } = {},
+  ) => {
     setStateRaw(prev => {
       const next = producer(prev)
       if (next === prev) return prev
-      scheduleRemoteSave(next)
+      // Only a real change makes this device the freshest writer.
+      touchLocal()
+      scheduleRemoteSave(next, opts.force)
       return next
     })
   }, [scheduleRemoteSave])
@@ -324,12 +364,14 @@ export default function App() {
     mutate(s => ({ ...s, settings }))
   }, [mutate])
 
+  // Reset and import are the two deliberate "make the cloud match this device"
+  // actions, so they skip the compare-and-swap that guards accidental overwrites.
   const resetAll = useCallback(() => {
-    mutate(() => emptyState())
+    mutate(() => emptyState(), { force: true })
   }, [mutate])
 
   const importData = useCallback((imported: TractionState) => {
-    mutate(() => imported)
+    mutate(() => imported, { force: true })
   }, [mutate])
 
   const runningEntry = useMemo(() => state.entries.find(e => e.runningSince) ?? null, [state.entries])

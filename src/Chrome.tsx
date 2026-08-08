@@ -4,6 +4,9 @@ import type { User } from '@supabase/supabase-js'
 // way Toggl's home screen works: timer on top, date-grouped history below.
 export type View = 'timer' | 'clients' | 'services' | 'expenses' | 'invoices' | 'reports' | 'settings'
 
+/** 'pulled' = this device adopted a newer copy from the cloud. */
+export type CloudStatus = 'idle' | 'saving' | 'saved' | 'pulled' | 'error'
+
 const NAV: { id: View; label: string }[] = [
   { id: 'timer', label: 'Timer' },
   { id: 'expenses', label: 'Expenses' },
@@ -22,7 +25,7 @@ export function Chrome({
   user: User | null
   onLogin: () => void
   onLogout: () => void
-  cloudStatus: 'idle' | 'saving' | 'saved' | 'error'
+  cloudStatus: CloudStatus
   running: boolean
 }) {
   return (
@@ -57,6 +60,7 @@ export function Chrome({
           <span className={`cloud-indicator ${cloudStatus}`}>
             {cloudStatus === 'saving' && 'syncing…'}
             {cloudStatus === 'saved' && 'synced'}
+            {cloudStatus === 'pulled' && 'loaded from cloud'}
             {cloudStatus === 'error' && 'sync failed'}
           </span>
         )}

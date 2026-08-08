@@ -16,6 +16,7 @@ export const EXPENSE_CATEGORIES = ['Materials', 'Fuel', 'Equipment', 'Fees', 'Su
 
 const STORAGE_KEY = 'traction-state'
 const UPDATED_AT_KEY = 'traction-updated-at'
+const REMOTE_SEEN_KEY = 'traction-remote-seen'
 
 export const PALETTE = [
   '#22c55e', '#10b981', '#14b8a6', '#0ea5e9',
@@ -45,6 +46,12 @@ export function defaultSettings(): Settings {
 
 export function emptyState(): TractionState {
   return { clients: [], services: [], entries: [], expenses: [], invoices: [], settings: defaultSettings() }
+}
+
+/** No real data yet — a device that's been opened but never actually used. */
+export function isEmptyState(s: TractionState): boolean {
+  return s.clients.length === 0 && s.services.length === 0 && s.entries.length === 0
+    && s.expenses.length === 0 && s.invoices.length === 0
 }
 
 // ---- Factories -----------------------------------------------------------
@@ -369,9 +376,19 @@ export function hydrateState(raw: unknown): TractionState {
   }
 }
 
+/**
+ * Mirror state into localStorage. Deliberately does NOT touch the updated-at
+ * stamp — mirroring runs on every state change including the first render, and
+ * treating "the app was opened here" as "the data changed here" makes a blank
+ * device look newer than the cloud and refuse to pull.
+ */
 export function saveLocal(state: TractionState) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  localStorage.setItem(UPDATED_AT_KEY, new Date().toISOString())
+}
+
+/** Record when this device last *changed* the data — the freshness signal sync compares. */
+export function touchLocal(at: string = new Date().toISOString()) {
+  localStorage.setItem(UPDATED_AT_KEY, at)
 }
 
 export function loadLocal(): TractionState {
@@ -387,23 +404,84 @@ export function getLocalUpdatedAt(): string | null {
   return localStorage.getItem(UPDATED_AT_KEY)
 }
 
-/** Save the whole state document to Supabase (one row per user). */
-export async function saveRemote(supabase: SupabaseClient, state: TractionState): Promise<boolean> {
+/**
+ * Is `a` strictly newer than `b`? Parsed, never string-compared: local stamps
+ * are `…123Z` while Postgres hands back `…123+00:00`, and those two sort in the
+ * wrong order lexically. A missing `b` counts as older than any real `a`.
+ */
+export function isNewer(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a) return false
+  const ta = Date.parse(a)
+  if (Number.isNaN(ta)) return false
+  if (!b) return true
+  const tb = Date.parse(b)
+  return Number.isNaN(tb) ? true : ta > tb
+}
+
+/**
+ * `updated_at` of the cloud row this device last read or wrote — the base
+ * version for saveRemote's compare-and-swap.
+ */
+export function getRemoteSeen(): string | null {
+  return localStorage.getItem(REMOTE_SEEN_KEY)
+}
+
+function setRemoteSeen(updatedAt: string) {
+  localStorage.setItem(REMOTE_SEEN_KEY, updatedAt)
+}
+
+export type SaveResult = 'saved' | 'stale' | 'error'
+
+/**
+ * Save the whole state document to Supabase (one row per user).
+ *
+ * Guarded by a compare-and-swap: we refuse to overwrite a cloud row this device
+ * has never seen. Without it, a freshly-opened device holding an empty state
+ * replaces the entire dataset the moment you touch anything. `force` is for the
+ * two cases where overwriting IS the intent — Reset all, and importing a backup.
+ */
+export async function saveRemote(
+  supabase: SupabaseClient,
+  state: TractionState,
+  opts: { force?: boolean } = {},
+): Promise<SaveResult> {
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return false
-  const { error } = await supabase
+  if (!user) return 'error'
+
+  if (!opts.force) {
+    const { data: head, error } = await supabase
+      .from('traction_states')
+      .select('updated_at')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (error) return 'error'
+    if (head?.updated_at && head.updated_at !== getRemoteSeen()) return 'stale'
+  }
+
+  const { data, error } = await supabase
     .from('traction_states')
     .upsert({
       user_id: user.id,
       state_json: state,
       updated_at: new Date().toISOString(),
     })
-  return !error
+    .select('updated_at')
+    .single()
+  if (error || !data) return 'error'
+  // Store the value the row actually holds now, so the next compare-and-swap
+  // matches like for like (Postgres echoes `+00:00`, not the `Z` we sent).
+  setRemoteSeen(data.updated_at)
+  return 'saved'
 }
 
-export async function loadRemote(
-  supabase: SupabaseClient,
-): Promise<{ state: TractionState; updatedAt: string } | null> {
+export interface RemoteState {
+  state: TractionState
+  updatedAt: string
+  /** True when this device had never observed the cloud row before this read. */
+  firstSight: boolean
+}
+
+export async function loadRemote(supabase: SupabaseClient): Promise<RemoteState | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const { data, error } = await supabase
@@ -412,7 +490,11 @@ export async function loadRemote(
     .eq('user_id', user.id)
     .maybeSingle()
   if (error || !data) return null
-  return { state: hydrateState(data.state_json), updatedAt: data.updated_at }
+  const firstSight = getRemoteSeen() === null
+  // We've now observed this version, so a later local save is allowed to build
+  // on it — whether or not the caller decides to adopt it.
+  setRemoteSeen(data.updated_at)
+  return { state: hydrateState(data.state_json), updatedAt: data.updated_at, firstSight }
 }
 
 // ---- Export / import -----------------------------------------------------

@@ -125,6 +125,7 @@ h3 { font-size: 1.05rem; }
 .cloud-indicator { font-size: 0.78rem; color: var(--text-dim); }
 .cloud-indicator.saving { color: var(--indigo); }
 .cloud-indicator.saved { color: var(--accent); }
+.cloud-indicator.pulled { color: var(--indigo); }
 .cloud-indicator.error { color: var(--danger); }
 
 /* ===== Buttons ===== */
