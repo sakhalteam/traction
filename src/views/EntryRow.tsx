@@ -71,7 +71,9 @@ export function EntryRow({
         <span className="entry-dur">{isRunning ? 'running…' : formatDuration(secs)}</span>
         {/* Colour is derived from the invoice, so it can never claim "paid"
             about work whose invoice still says draft. */}
-        <span className={`entry-amt ${payment}`}>
+        {/* A $0 entry (archived agency work carries no rate) is neither owed nor
+            collected — colouring it "unbilled" would imply money to chase. */}
+        <span className={`entry-amt ${entry.rate === 0 ? 'zero' : payment}`}>
           {formatMoney(lineAmount(secs, entry.rate), state.settings.currency)}
         </span>
       </div>

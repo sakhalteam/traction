@@ -213,11 +213,26 @@ textarea { resize: vertical; }
 .running-amount { font-variant-numeric: tabular-nums; font-size: 1.1rem; color: var(--accent); font-weight: 600; }
 .running-card .btn { width: auto; }
 
+/* Day total. Colour matches the entry amounts below it (least-settled wins), so
+   a day still owed can't read as collected just because most of it was paid. */
 .total-pill {
   font-variant-numeric: tabular-nums; font-weight: 650;
-  background: rgba(34, 197, 94, 0.14); color: var(--accent);
+  background: rgba(56, 189, 248, 0.14); color: var(--sky);
   padding: 4px 12px; border-radius: 999px; font-size: 0.9rem;
 }
+.total-pill.invoiced { background: rgba(245, 158, 11, 0.14); color: var(--amber); }
+.total-pill.paid { background: rgba(34, 197, 94, 0.14); color: var(--accent); }
+.total-pill.zero { background: rgba(148, 163, 184, 0.12); color: var(--text-faint); }
+/* Dashed ring = this day spans more than one state; the colour is the worst of them. */
+.total-pill.mixed { border: 1px dashed currentColor; padding: 3px 11px; }
+
+.filter-summary {
+  display: flex; align-items: center; gap: 10px;
+  margin: 10px 0 0; color: var(--text-dim); font-size: 0.85rem;
+}
+.filter-total { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 650; font-size: 1rem; color: var(--sky); }
+.filter-total.invoiced { color: var(--amber); }
+.filter-total.paid { color: var(--accent); }
 
 /* ===== Entry rows ===== */
 .entry-list, .service-list, .invoice-list, .candidate-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -241,6 +256,7 @@ textarea { resize: vertical; }
 .entry-amt { color: var(--sky); font-size: 0.85rem; }
 .entry-amt.invoiced { color: var(--amber); }
 .entry-amt.paid { color: var(--accent); }
+.entry-amt.zero { color: var(--text-faint); }
 .entry-actions { display: flex; gap: 2px; }
 
 .client-tag { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; }

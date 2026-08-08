@@ -269,6 +269,33 @@ export function paymentStateOf(
   return invoice.status === 'paid' ? 'paid' : 'invoiced'
 }
 
+/**
+ * One payment state for a group of entries (a day's worth, a client's worth).
+ *
+ * Precedence is deliberately "least settled wins": a day holding both collected
+ * and unbilled work reads as unbilled, because the useful question at a glance
+ * is "is there money here I still have to chase?", not "have I been paid at
+ * all?". Optimistic rounding on a money summary is how work quietly goes
+ * unbilled.
+ */
+export function rollupPaymentState(
+  entries: Pick<TimeEntry, 'invoiceId'>[],
+  invoices: Pick<Invoice, 'id' | 'status'>[],
+): PaymentState {
+  const states = new Set(entries.map(e => paymentStateOf(e, invoices)))
+  if (states.has('unbilled')) return 'unbilled'
+  if (states.has('invoiced')) return 'invoiced'
+  return 'paid'
+}
+
+/** True when a group spans more than one payment state — worth flagging in UI. */
+export function isMixedPayment(
+  entries: Pick<TimeEntry, 'invoiceId'>[],
+  invoices: Pick<Invoice, 'id' | 'status'>[],
+): boolean {
+  return new Set(entries.map(e => paymentStateOf(e, invoices))).size > 1
+}
+
 // ---- Wall-clock start/end ------------------------------------------------
 
 /** 'YYYY-MM-DD' for the LOCAL calendar day an epoch ms falls on. */

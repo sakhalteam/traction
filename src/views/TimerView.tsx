@@ -2,12 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Client, Service, TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
+  paymentStateOf, rollupPaymentState, isMixedPayment, type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
 import { EntryRow } from './EntryRow'
 
 /** Sentinel <option> value meaning "open the create form", not a real id. */
 const NEW_OPTION = '__new__'
+
+const PAY_HINT: Record<PaymentState, string> = {
+  unbilled: "Not on an invoice yet — this is money you still have to bill",
+  invoiced: 'On an invoice, waiting to be paid',
+  paid: "Paid — you've collected this",
+}
 
 export function TimerView({
   state, onStart, onStop, onUpdateEntry, onDeleteEntry, onAddManual, onAddService, onAddClient,
@@ -47,6 +54,7 @@ export function TimerView({
 
   // History controls (absorbed from the old separate Log tab)
   const [filterClient, setFilterClient] = useState('')
+  const [filterPayment, setFilterPayment] = useState<PaymentState | ''>('')
   const [adding, setAdding] = useState(false)
 
   const selectedService = services.find(s => s.id === serviceId)
@@ -62,6 +70,8 @@ export function TimerView({
       .filter(e => filterClient === '' ? true
         : filterClient === 'general' ? !e.clientId
         : e.clientId === filterClient)
+      .filter(e => filterPayment === '' ? true
+        : paymentStateOf(e, state.invoices) === filterPayment)
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt))
     const map = new Map<string, TimeEntry[]>()
     for (const e of filtered) {
@@ -70,7 +80,18 @@ export function TimerView({
       map.set(e.date, arr)
     }
     return [...map.entries()]
-  }, [state.entries, filterClient])
+  }, [state.entries, state.invoices, filterClient, filterPayment])
+
+  // Totals for whatever the filters are currently showing — answers "how much
+  // do the Steins still owe me?" without leaving the time log.
+  const shown = useMemo(() => {
+    const all = byDate.flatMap(([, entries]) => entries)
+    return {
+      count: all.length,
+      seconds: all.reduce((s, e) => s + liveSeconds(e, now), 0),
+      amount: all.reduce((s, e) => s + lineAmount(liveSeconds(e, now), e.rate), 0),
+    }
+  }, [byDate, now])
 
   // Recent distinct service+client combos, for one-tap resume.
   const recentJobs = useMemo(() => {
@@ -293,7 +314,24 @@ export function TimerView({
               {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
+          <label className="field">
+            <span>Payment</span>
+            <select value={filterPayment} onChange={e => setFilterPayment(e.target.value as PaymentState | '')}>
+              <option value="">Any</option>
+              <option value="unbilled">● Unbilled — still to bill</option>
+              <option value="invoiced">● Invoiced — awaiting payment</option>
+              <option value="paid">● Paid — collected</option>
+            </select>
+          </label>
         </div>
+        {shown.count > 0 && (filterClient !== '' || filterPayment !== '') && (
+          <p className="filter-summary">
+            {shown.count} entr{shown.count === 1 ? 'y' : 'ies'} · {formatDuration(shown.seconds)}
+            <span className={`filter-total ${filterPayment || 'unbilled'}`}>
+              {formatMoney(shown.amount, state.settings.currency)}
+            </span>
+          </p>
+        )}
         {adding && (
           <ManualEntryForm
             state={state}
@@ -308,11 +346,22 @@ export function TimerView({
         byDate.map(([date, entries]) => {
           const daySecs = entries.reduce((s, e) => s + liveSeconds(e, now), 0)
           const dayAmt = entries.reduce((s, e) => s + lineAmount(liveSeconds(e, now), e.rate), 0)
+          // Least-settled state wins, so a day with anything still to bill can't
+          // read as collected. Mixed days say so rather than hiding it.
+          const dayState = rollupPaymentState(entries, state.invoices)
+          const mixed = isMixedPayment(entries, state.invoices)
           return (
             <div key={date} className="panel">
               <div className="panel-head">
                 <h3>{date === todayISO() ? 'Today' : formatDate(date)} · {formatDuration(daySecs)}</h3>
-                <span className="total-pill">{formatMoney(dayAmt, state.settings.currency)}</span>
+                <span
+                  className={`total-pill ${dayAmt === 0 ? 'zero' : dayState}${mixed ? ' mixed' : ''}`}
+                  title={dayAmt === 0 ? 'No billable value — archived or unrated work'
+                    : mixed ? `Mixed — showing the least settled (${dayState})`
+                    : PAY_HINT[dayState]}
+                >
+                  {formatMoney(dayAmt, state.settings.currency)}
+                </span>
               </div>
               <ul className="entry-list">
                 {entries.map(e => (
