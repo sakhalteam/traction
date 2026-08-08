@@ -427,6 +427,19 @@ textarea { resize: vertical; }
 /* Wall-clock span on a collapsed entry row */
 .entry-span { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
+/* Create-in-place row under the Service/Client dropdowns */
+.inline-create {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin: -4px 0 12px;
+  padding: 10px;
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px dashed rgba(34, 197, 94, 0.35);
+  border-radius: var(--radius-sm);
+}
+.inline-create input { flex: 1 1 160px; width: auto; }
+.inline-create input.narrow { flex: 0 0 96px; }
+.inline-create .btn { flex: none; }
+
 /* Continue (Toggl-style): starts a NEW entry with this one's details */
 .icon-btn.continue-btn { color: var(--accent); font-size: 0.8rem; }
 .icon-btn.continue-btn:hover { background: rgba(34, 197, 94, 0.16); }

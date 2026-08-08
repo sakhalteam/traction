@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Client, Service, TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
 } from '../store'
 import { useNow } from '../useNow'
 import { EntryRow } from './EntryRow'
+
+/** Sentinel <option> value meaning "open the create form", not a real id. */
+const NEW_OPTION = '__new__'
 
 export function TimerView({
   state, onStart, onStop, onUpdateEntry, onDeleteEntry, onAddManual, onAddService, onAddClient,
@@ -28,10 +31,19 @@ export function TimerView({
   const [note, setNote] = useState('')
   const [rate, setRate] = useState('')
 
-  // Quick-add inline forms
+  // Create-in-place forms, opened from the "+ New …" option in each dropdown.
+  const [creating, setCreating] = useState<'service' | 'client' | null>(null)
   const [newService, setNewService] = useState('')
   const [newServiceRate, setNewServiceRate] = useState('')
   const [newClient, setNewClient] = useState('')
+  const newServiceRef = useRef<HTMLInputElement>(null)
+  const newClientRef = useRef<HTMLInputElement>(null)
+
+  // Focus the field the moment it appears, so you can just keep typing.
+  useEffect(() => {
+    if (creating === 'service') newServiceRef.current?.focus()
+    if (creating === 'client') newClientRef.current?.focus()
+  }, [creating])
 
   // History controls (absorbed from the old separate Log tab)
   const [filterClient, setFilterClient] = useState('')
@@ -102,13 +114,40 @@ export function TimerView({
     onStart(e.serviceId, e.clientId, e.rate, e.note)
   }
 
+  /** The dropdowns carry a sentinel row that opens the creator instead of selecting. */
+  function handleServicePick(value: string) {
+    if (value === NEW_OPTION) {
+      setCreating('service')
+      return // leave the current selection alone until the new one exists
+    }
+    setServiceId(value)
+    setRate('')
+  }
+
+  function handleClientPick(value: string) {
+    if (value === NEW_OPTION) {
+      setCreating('client')
+      return
+    }
+    setClientId(value)
+  }
+
+  function cancelCreate() {
+    setCreating(null)
+    setNewService('')
+    setNewServiceRate('')
+    setNewClient('')
+  }
+
   function handleAddService() {
     const name = newService.trim()
     if (!name) return
     const svc = onAddService(name, Number(newServiceRate) || 0)
-    setServiceId(svc.id)
+    setServiceId(svc.id) // select what you just made
+    setRate('')
     setNewService('')
     setNewServiceRate('')
+    setCreating(null)
   }
 
   function handleAddClient() {
@@ -117,6 +156,7 @@ export function TimerView({
     const c = onAddClient(name)
     setClientId(c.id)
     setNewClient('')
+    setCreating(null)
   }
 
   return (
@@ -145,73 +185,95 @@ export function TimerView({
               ))}
             </div>
           )}
-          {services.length === 0 ? (
-            <p className="hint">Add a service below to start your first timer.</p>
-          ) : (
-            <>
-              <div className="field-row">
-                <label className="field">
-                  <span>Service</span>
-                  <select value={serviceId} onChange={e => { setServiceId(e.target.value); setRate('') }}>
-                    <option value="">Pick a service…</option>
-                    {services.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} · {formatMoney(s.defaultRate, state.settings.currency)}/hr</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Client</span>
-                  <select value={clientId} onChange={e => setClientId(e.target.value)}>
-                    <option value="">General (no client)</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </label>
-                <label className="field rate-field">
-                  <span>Rate /hr</span>
-                  <input
-                    type="number" min="0" step="1" inputMode="decimal"
-                    placeholder={String(resolvedRate)}
-                    value={rate}
-                    onChange={e => setRate(e.target.value)}
-                  />
-                </label>
-              </div>
-              <label className="field">
-                <span>Note (optional — e.g. "south side rock wall")</span>
-                <input
-                  type="text" value={note} placeholder="What are you working on?"
-                  onChange={e => setNote(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleStart() }}
-                />
-              </label>
-              <button className="btn primary big" disabled={!serviceId} onClick={handleStart}>
-                ▶ Start timer
-              </button>
-            </>
+          <div className="field-row">
+            <label className="field">
+              <span>Service</span>
+              <select value={serviceId} onChange={e => handleServicePick(e.target.value)}>
+                <option value="">Pick a service…</option>
+                {services.map(s => (
+                  <option key={s.id} value={s.id}>{s.name} · {formatMoney(s.defaultRate, state.settings.currency)}/hr</option>
+                ))}
+                <option value={NEW_OPTION}>+ New service…</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Client</span>
+              <select value={clientId} onChange={e => handleClientPick(e.target.value)}>
+                <option value="">General (no client)</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value={NEW_OPTION}>+ New client…</option>
+              </select>
+            </label>
+            <label className="field rate-field">
+              <span>Rate /hr</span>
+              <input
+                type="number" min="0" step="1" inputMode="decimal"
+                placeholder={String(resolvedRate)}
+                value={rate}
+                onChange={e => setRate(e.target.value)}
+              />
+            </label>
+          </div>
+
+          {/* Create-in-place, so adding a service you just remembered never
+              means leaving the timer screen. */}
+          {creating === 'service' && (
+            <div className="inline-create">
+              <input
+                ref={newServiceRef}
+                placeholder="New service name" value={newService}
+                onChange={e => setNewService(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleAddService()
+                  if (e.key === 'Escape') cancelCreate()
+                }}
+              />
+              <input
+                className="narrow" type="number" min="0" placeholder="$/hr"
+                value={newServiceRate}
+                onChange={e => setNewServiceRate(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleAddService()
+                  if (e.key === 'Escape') cancelCreate()
+                }}
+              />
+              <button className="btn primary" disabled={!newService.trim()} onClick={handleAddService}>Add</button>
+              <button className="btn ghost" onClick={cancelCreate}>Cancel</button>
+            </div>
           )}
 
-          <div className="quick-add-grid">
-            <div className="quick-add">
-              <span className="quick-label">+ New service</span>
-              <div className="quick-row">
-                <input placeholder="Service name" value={newService}
-                  onChange={e => setNewService(e.target.value)} />
-                <input className="narrow" type="number" min="0" placeholder="$/hr" value={newServiceRate}
-                  onChange={e => setNewServiceRate(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddService() }} />
-                <button className="btn" onClick={handleAddService}>Add</button>
-              </div>
+          {creating === 'client' && (
+            <div className="inline-create">
+              <input
+                ref={newClientRef}
+                placeholder="New client name" value={newClient}
+                onChange={e => setNewClient(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleAddClient()
+                  if (e.key === 'Escape') cancelCreate()
+                }}
+              />
+              <button className="btn primary" disabled={!newClient.trim()} onClick={handleAddClient}>Add</button>
+              <button className="btn ghost" onClick={cancelCreate}>Cancel</button>
             </div>
-            <div className="quick-add">
-              <span className="quick-label">+ New client</span>
-              <div className="quick-row">
-                <input placeholder="Client name" value={newClient}
-                  onChange={e => setNewClient(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddClient() }} />
-                <button className="btn" onClick={handleAddClient}>Add</button>
-              </div>
-            </div>
-          </div>
+          )}
+
+          <label className="field">
+            <span>Note (optional — e.g. "south side rock wall")</span>
+            <input
+              type="text" value={note} placeholder="What are you working on?"
+              onChange={e => setNote(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleStart() }}
+            />
+          </label>
+          <button className="btn primary big" disabled={!serviceId} onClick={handleStart}>
+            ▶ Start timer
+          </button>
+          {services.length === 0 && (
+            <p className="hint tiny">
+              No services yet — pick <strong>+ New service…</strong> above to make your first one.
+            </p>
+          )}
         </div>
       )}
 
