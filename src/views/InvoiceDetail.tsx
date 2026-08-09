@@ -3,6 +3,7 @@ import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import { buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney } from '../store'
 import { ReceiptLink } from './ReceiptLink'
 import { JobPhotos } from './JobPhotos'
+import { LogoImage } from './LogoImage'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
@@ -58,6 +59,7 @@ export function InvoiceDetail({
       <div className="invoice-sheet">
         <div className="invoice-top">
           <div className="invoice-from">
+            {settings.logoPath && <LogoImage path={settings.logoPath} className="invoice-logo" />}
             <div className="from-name">{settings.businessName || 'Your business name'}</div>
             <div className="dim">{settings.businessAddress}</div>
             <div className="dim">{[settings.businessPhone, settings.businessEmail].filter(Boolean).join(' · ')}</div>
@@ -104,13 +106,19 @@ export function InvoiceDetail({
                     <td className="num">{formatMoney(line.amount, settings.currency)}</td>
                   </tr>
                 ))}
-                <tr className="day-subtotal">
-                  <td />
-                  <td className="dim">{formatDate(day.date)} subtotal</td>
-                  <td className="num dim">{formatDuration(day.daySeconds)}</td>
-                  <td />
-                  <td className="num">{formatMoney(day.dayTotal, settings.currency)}</td>
-                </tr>
+                {/* A subtotal only means something when there's more than one
+                    line to sum. On a single-line day it restated the row
+                    verbatim, doubling the invoice's length for no information —
+                    which is what pushed it onto a second page. */}
+                {day.lines.length > 1 && (
+                  <tr className="day-subtotal">
+                    <td />
+                    <td className="dim">{formatDate(day.date)} subtotal</td>
+                    <td className="num dim">{formatDuration(day.daySeconds)}</td>
+                    <td />
+                    <td className="num">{formatMoney(day.dayTotal, settings.currency)}</td>
+                  </tr>
+                )}
               </Fragment>
             ))}
 

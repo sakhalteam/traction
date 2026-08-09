@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react'
 import type { Settings, TractionState } from '../types'
 import { entriesToCSV, expensesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
+import { ReceiptError, uploadLogo } from '../receipts'
+import { supabase } from '../supabaseClient'
+import { LogoImage } from './LogoImage'
 
 function download(filename: string, text: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }))
@@ -23,6 +26,30 @@ export function SettingsView({
   const [confirmReset, setConfirmReset] = useState(false)
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const logoRef = useRef<HTMLInputElement>(null)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoMsg, setLogoMsg] = useState<string | null>(null)
+
+  /**
+   * Saved immediately rather than waiting for "Save changes". The upload has
+   * already happened by this point, so leaving the path unsaved would strand a
+   * file in Storage that nothing references.
+   */
+  async function pickLogo(file: File) {
+    setLogoBusy(true)
+    setLogoMsg(null)
+    try {
+      const path = await uploadLogo(supabase, file)
+      const next = { ...s, logoPath: path }
+      setS(next)
+      onUpdate(next)
+    } catch (err) {
+      setLogoMsg(err instanceof ReceiptError ? err.message : 'Could not upload that image.')
+    } finally {
+      setLogoBusy(false)
+      if (logoRef.current) logoRef.current.value = ''
+    }
+  }
   const set = (patch: Partial<Settings>) => setS(prev => ({ ...prev, ...patch }))
   const dirty = JSON.stringify(s) !== JSON.stringify(state.settings)
 
@@ -62,6 +89,29 @@ export function SettingsView({
         </div>
         <label className="field"><span>Address</span>
           <input value={s.businessAddress} onChange={e => set({ businessAddress: e.target.value })} /></label>
+
+        <div className="field">
+          <span>Logo</span>
+          <div className="logo-row">
+            {s.logoPath
+              ? <LogoImage path={s.logoPath} className="logo-preview" />
+              : <div className="logo-preview empty">No logo</div>}
+            <input
+              ref={logoRef} type="file" accept="image/*" hidden
+              onChange={e => { const f = e.target.files?.[0]; if (f) void pickLogo(f) }}
+            />
+            <button className="btn" disabled={logoBusy} onClick={() => logoRef.current?.click()}>
+              {logoBusy ? 'Uploading…' : s.logoPath ? 'Replace logo' : 'Upload logo'}
+            </button>
+            {s.logoPath && !logoBusy && (
+              <button className="btn ghost" onClick={() => { set({ logoPath: null }); onUpdate({ ...s, logoPath: null }) }}>
+                Remove
+              </button>
+            )}
+          </div>
+          {logoMsg && <p className="hint tiny err">{logoMsg}</p>}
+          <p className="hint tiny">Appears at the top of every invoice. Saved as soon as it uploads.</p>
+        </div>
         <div className="field-row">
           <label className="field narrow-field"><span>Currency symbol</span>
             <input value={s.currency} maxLength={3} onChange={e => set({ currency: e.target.value })} /></label>

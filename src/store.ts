@@ -41,6 +41,7 @@ export function defaultSettings(): Settings {
     invoiceCounter: 1,
     currency: '$',
     netDays: 30,
+    logoPath: null,
   }
 }
 

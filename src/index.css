@@ -275,6 +275,20 @@ textarea { resize: vertical; }
   .invoice-job-photos .label { color: #444; }
 }
 
+/* ===== Business logo ===== */
+.invoice-logo { max-height: 68px; max-width: 220px; object-fit: contain; display: block; margin-bottom: 8px; }
+.logo-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.logo-row .btn { width: auto; }
+.logo-preview {
+  max-height: 54px; max-width: 160px; object-fit: contain;
+  border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(15, 23, 42, 0.4);
+}
+.logo-preview.empty {
+  display: flex; align-items: center; justify-content: center;
+  width: 96px; height: 54px; border-style: dashed;
+  color: var(--text-faint); font-size: 0.78rem;
+}
+
 /* ===== Entry rows ===== */
 .entry-list, .service-list, .invoice-list, .candidate-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 
@@ -628,4 +642,24 @@ textarea { resize: vertical; }
   .content { padding: 0; max-width: none; }
   .invoice-sheet { box-shadow: none; border-radius: 0; padding: 0; max-width: none; }
   .invoice-notes .label { display: none; }
+
+  /*
+   * Browsers repeat <tfoot> at the bottom of EVERY printed page by default —
+   * that's what it's for on long ledgers. On an invoice it printed the grand
+   * total once per page, and a client read two "$1593.59" lines as owing it
+   * twice. Demoting tfoot to a normal row group makes it appear exactly once,
+   * at the end. <thead> keeps repeating: column headers on page 2 help, and a
+   * repeated header can't be mistaken for a second amount due.
+   */
+  tfoot { display: table-row-group; }
+
+  /* Never split a row, or a total, across a page boundary. */
+  .invoice-table tr { break-inside: avoid; page-break-inside: avoid; }
+  .invoice-table tfoot tr { break-inside: avoid; page-break-inside: avoid; }
+  .grand-total { break-before: avoid; page-break-before: avoid; }
+
+  /* Tighter on paper — the goal is one page whenever the work fits on one. */
+  .invoice-sheet { font-size: 11pt; }
+  .invoice-table th, .invoice-table td { padding: 4px 8px; }
+  @page { margin: 14mm; }
 }

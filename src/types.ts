@@ -160,6 +160,12 @@ export interface Settings {
   currency: string
   /** Default payment terms in days; stamped onto each new invoice's dueDate. */
   netDays: number
+  /**
+   * Business logo shown on invoices, as an object path in the private
+   * `receipts` bucket. Path only, never the image bytes — state is upserted as
+   * one JSON blob per save. Null when no logo has been uploaded.
+   */
+  logoPath?: string | null
 }
 
 export interface TractionState {

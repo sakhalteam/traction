@@ -97,6 +97,23 @@ export async function uploadJobPhoto(
 }
 
 /**
+ * Upload the business logo. One object per user, overwritten in place, so a
+ * re-upload can't leave the old file orphaned in Storage.
+ */
+export async function uploadLogo(supabase: SupabaseClient, file: File): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new ReceiptError('You need to be signed in to upload a logo.')
+
+  const blob = await downscale(file)
+  const path = `${user.id}/logo.jpg`
+  const { error } = await supabase.storage
+    .from(RECEIPT_BUCKET)
+    .upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+  if (error) throw new ReceiptError(error.message)
+  return path
+}
+
+/**
  * A short-lived signed URL for viewing/printing a receipt. The bucket is
  * private, so this is the only way to read one.
  */
