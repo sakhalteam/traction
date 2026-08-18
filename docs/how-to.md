@@ -20,6 +20,7 @@ keep going.** Everything below is the detail behind that loop.
 5. [Worked examples](#5-worked-examples)
 6. [Sync, backups & data safety](#6-sync-backups--data-safety)
 7. [FAQ & troubleshooting](#7-faq--troubleshooting)
+8. [Using it on your phone](#8-using-it-on-your-phone) ← **install it to your home screen**
 
 ---
 
@@ -74,22 +75,35 @@ That's it. Now you're ready to track.
 
 Your home base for tracking live work.
 
-- **Start a timer:** pick a **Service**, optionally a **Client**, tweak the **Rate**
-  if needed, add a **Note** (e.g. "south side rock wall"), hit **▶ Start timer**.
+- **▶ Again:** the big green button restarts the last job you did, in one tap. This
+  is the fastest path and usually the right one.
+- **Job chips:** below it, your **pinned** jobs (★, amber) followed by recent ones.
+  One tap re-starts that exact *service + client* — no re-picking. On a phone the
+  strip scrolls sideways; swipe for more.
+- **Pinning:** tap the ☆ on any chip, or **☆ Pin** next to Start, to keep a job on
+  the list permanently. Recent-only ordering works fine at five clients; once you're
+  juggling fifteen, the job you do every Tuesday drops off by Thursday. Pin it.
+- **Start a timer manually:** pick a **Service**, optionally a **Client**, tweak the
+  **Rate**, add a **Note** (e.g. "south side rock wall"), hit **▶ Start timer**.
   Only one timer runs at a time — starting a new one auto-stops the previous.
+- **The Service and Client boxes are searchable.** Tap one, start typing, tap the
+  result. If what you typed doesn't exist yet, the top row offers **+ New client
+  "Vasquez"** — so you can add someone while standing in their driveway. (A service
+  created this way starts at $0/hr; type the rate in the Rate box, and set a proper
+  default later under **Services**.)
 - **Rate auto-fills** from the client's custom rate (if set) or the service default.
   The number shown as a placeholder is what you'll be billed at unless you type over it.
-- **▶ Resume chips:** across the top are your recent *service + client* combos.
-  One tap re-starts that exact job — no re-picking. Perfect for "back on Larry's deck."
 - **Running card:** while a timer runs you get a big live clock + running dollar
   amount + **■ Stop**.
-- **Quick-add:** the *+ New service* / *+ New client* boxes let you create either
-  without leaving the Timer.
 - **Today list:** everything logged today, with live totals (time + $) at the top.
+- **Ready to invoice** sits below the timer: any client with unbilled work older
+  than three days, already totalled, with a button straight to their invoice.
 
-> 💡 **Look at your browser tab.** While a timer runs, the tab title shows the live
-> clock (`▶ 0:42:15 · traction`) so you never forget it's going. If a timer runs
-> past **8 hours**, traction pops a *"still on the clock?"* nudge with a one-click Stop.
+> 💡 **A running timer follows you.** Switch to Invoices or Expenses and a slim green
+> bar stays pinned to the bottom of the screen with the live clock, the running
+> amount, and a **■** to stop it. Tap the bar itself to jump back to the Timer. The
+> browser tab title also shows the clock (`▶ 0:42:15 · traction`), and if a timer
+> runs past **8 hours** you get a *"still on the clock?"* nudge with a one-tap Stop.
 
 ### Log
 
@@ -339,12 +353,57 @@ Open the entry in Log/Timer and edit the hours/minutes to the real duration. (tr
 also nudges you after 8 hours so this is rare.)
 
 **Q: Can I use it on my phone?**
-Yes — it's a responsive web app. Add it to your home screen for one-tap access.
+Yes, and it's built for that — see [Using it on your phone](#8-using-it-on-your-phone).
 
 **Q: Is my data private?**
 Yes. Each signed-in user only sees their own data (enforced server-side). The "Nic Zone"
 link on the sakhalteam homepage is just a convenience curtain — your login is the real
 lock.
+
+---
+
+## 8. Using it on your phone
+
+The phone is where traction actually gets used — you're standing in a yard, not sitting
+at a desk. It's built as an installable app for exactly that.
+
+### Install it to your home screen
+
+**iPhone (Safari):** open `sakhalteam.github.io/traction/` → **Share** → **Add to Home
+Screen**.
+**Android (Chrome):** open the same link → **⋮** menu → **Install app** (or **Add to
+Home screen**).
+
+You get a real app icon, no browser chrome, and it launches straight to the timer.
+
+### What's different on a phone
+
+- **Bottom tab bar.** Timer, Expenses, Invoices, Clients sit within thumb reach;
+  Services, Reports and Settings live behind **More**. A green dot on the Timer tab
+  means a clock is running.
+- **The running timer is always visible** as a bar above the tab bar, on every screen.
+- **Everything is a big target.** Buttons are sized to be hit one-handed, in a hurry,
+  with work gloves on.
+- **Searchable pickers** instead of long scrolling dropdowns — see the Timer section.
+
+### It works with no signal
+
+traction saves to your device first and syncs to the cloud afterwards, so a backyard
+with no bars is fine:
+
+- The app **opens offline** once you've installed it.
+- Time you log offline is kept locally and **pushed automatically the moment signal
+  comes back** — you don't have to remember to do anything.
+- If your phone and your PC both changed things while they were apart, traction
+  **merges** them rather than picking a winner. You'll see *"merged with cloud"* in the
+  header. Nothing you logged gets dropped for being a few seconds older than something
+  else.
+
+> ⚠️ The one thing merging can't recover is a **deletion**. If you delete an entry on
+> your phone while it's offline and the PC syncs in the meantime, the deleted entry can
+> come back. That's the deliberate trade: a row you have to delete twice is a nuisance,
+> whereas quietly losing three hours of tracked work is money gone. Delete it again and
+> it stays gone.
 
 ---
 

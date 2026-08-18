@@ -1,14 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Client, Service, TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
-  paymentStateOf, rollupPaymentState, isMixedPayment, daysBetween, type PaymentState,
+  paymentStateOf, rollupPaymentState, isMixedPayment, daysBetween, jobKey, isFavorite,
+  type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
 import { EntryRow } from './EntryRow'
+import { Picker } from './Picker'
 
-/** Sentinel <option> value meaning "open the create form", not a real id. */
-const NEW_OPTION = '__new__'
+/** How many recent jobs to offer alongside the pinned ones. */
+const RECENT_LIMIT = 6
+
+/**
+ * Clients shown in the invoice nudge before it collapses behind a "show more".
+ * The list is sorted by amount, so the few that matter are always the visible
+ * ones — and a busy month can't turn the timer screen into a wall of reminders.
+ */
+const NUDGE_PREVIEW = 3
 
 /**
  * Don't nag about a job you finished an hour ago — wait until work has had a
@@ -25,7 +34,7 @@ const PAY_HINT: Record<PaymentState, string> = {
 
 export function TimerView({
   state, onStart, onStop, onUpdateEntry, onDeleteEntry, onAddManual, onAddService, onAddClient,
-  onGoInvoice, onAttachPhoto, onRemovePhoto,
+  onGoInvoice, onAttachPhoto, onRemovePhoto, onToggleFavorite,
 }: {
   state: TractionState
   onGoInvoice: (clientId?: string) => void
@@ -38,6 +47,7 @@ export function TimerView({
   onAddManual: (serviceId: string, clientId: string | null, date: string, seconds: number, rate: number, note: string) => void
   onAddService: (name: string, rate: number) => Service
   onAddClient: (name: string) => Client
+  onToggleFavorite: (serviceId: string, clientId: string | null) => void
 }) {
   const services = state.services.filter(s => !s.archived)
   const clients = state.clients.filter(c => !c.archived)
@@ -49,24 +59,11 @@ export function TimerView({
   const [note, setNote] = useState('')
   const [rate, setRate] = useState('')
 
-  // Create-in-place forms, opened from the "+ New …" option in each dropdown.
-  const [creating, setCreating] = useState<'service' | 'client' | null>(null)
-  const [newService, setNewService] = useState('')
-  const [newServiceRate, setNewServiceRate] = useState('')
-  const [newClient, setNewClient] = useState('')
-  const newServiceRef = useRef<HTMLInputElement>(null)
-  const newClientRef = useRef<HTMLInputElement>(null)
-
-  // Focus the field the moment it appears, so you can just keep typing.
-  useEffect(() => {
-    if (creating === 'service') newServiceRef.current?.focus()
-    if (creating === 'client') newClientRef.current?.focus()
-  }, [creating])
-
   // History controls (absorbed from the old separate Log tab)
   const [filterClient, setFilterClient] = useState('')
   const [filterPayment, setFilterPayment] = useState<PaymentState | ''>('')
   const [adding, setAdding] = useState(false)
+  const [allNudges, setAllNudges] = useState(false)
 
   const selectedService = services.find(s => s.id === serviceId)
   const selectedClient = clientId ? (clients.find(c => c.id === clientId) ?? null) : null
@@ -131,26 +128,49 @@ export function TimerView({
       .sort((a, b) => b.amount - a.amount)
   }, [state.entries, state.clients])
 
-  // Recent distinct service+client combos, for one-tap resume.
-  const recentJobs = useMemo(() => {
-    const seen = new Set<string>()
-    const out: { serviceId: string; clientId: string | null; label: string; color: string }[] = []
-    for (const e of [...state.entries].sort((a, b) => b.createdAt - a.createdAt)) {
-      const key = `${e.serviceId}::${e.clientId ?? ''}`
-      if (seen.has(key)) continue
-      const svc = services.find(s => s.id === e.serviceId)
-      if (!svc) continue
-      seen.add(key)
-      const cName = clientName(e.clientId)
-      out.push({
-        serviceId: e.serviceId, clientId: e.clientId, color: svc.color,
+  /**
+   * The one-tap start list: jobs you've pinned, then jobs you've done lately.
+   *
+   * Recency alone is only enough while the client list is short. Once a week
+   * holds a dozen different jobs, the thing you do every Tuesday has been pushed
+   * off the end by Thursday — which is exactly when pinning earns its keep. Pins
+   * come first and never age out; recents fill the rest.
+   */
+  const { lastJob, quickJobs } = useMemo(() => {
+    const describe = (sid: string, cid: string | null) => {
+      const svc = state.services.find(s => s.id === sid)
+      // A job whose service was deleted or archived can't be started any more.
+      if (!svc || svc.archived) return null
+      const cName = cid ? (state.clients.find(c => c.id === cid)?.name ?? null) : null
+      return {
+        key: jobKey(sid, cid), serviceId: sid, clientId: cid, color: svc.color,
         label: cName ? `${svc.name} · ${cName}` : svc.name,
-      })
-      if (out.length >= 6) break
+      }
     }
-    return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.entries, services, state.clients])
+
+    const recentFirst = [...state.entries].sort((a, b) => b.createdAt - a.createdAt)
+    const last = recentFirst.map(e => describe(e.serviceId, e.clientId)).find(j => j !== null) ?? null
+
+    const seen = new Set<string>(last ? [last.key] : [])
+    const jobs: (NonNullable<ReturnType<typeof describe>> & { pinned: boolean })[] = []
+
+    for (const f of state.settings.favorites ?? []) {
+      const job = describe(f.serviceId, f.clientId)
+      if (!job || seen.has(job.key)) continue
+      seen.add(job.key)
+      jobs.push({ ...job, pinned: true })
+    }
+    let recents = 0
+    for (const e of recentFirst) {
+      if (recents >= RECENT_LIMIT) break
+      const job = describe(e.serviceId, e.clientId)
+      if (!job || seen.has(job.key)) continue
+      seen.add(job.key)
+      jobs.push({ ...job, pinned: false })
+      recents++
+    }
+    return { lastJob: last, quickJobs: jobs }
+  }, [state.entries, state.services, state.clients, state.settings.favorites])
 
   function handleStart() {
     if (!serviceId) return
@@ -173,77 +193,25 @@ export function TimerView({
     onStart(e.serviceId, e.clientId, e.rate, e.note)
   }
 
-  /** The dropdowns carry a sentinel row that opens the creator instead of selecting. */
-  function handleServicePick(value: string) {
-    if (value === NEW_OPTION) {
-      setCreating('service')
-      return // leave the current selection alone until the new one exists
-    }
-    setServiceId(value)
-    setRate('')
+  const shownNudges = allNudges ? readyToInvoice : readyToInvoice.slice(0, NUDGE_PREVIEW)
+  const hiddenNudgeTotal = readyToInvoice
+    .slice(NUDGE_PREVIEW)
+    .reduce((sum, c) => sum + c.amount, 0)
+
+  /**
+   * A service created mid-flow has no default rate yet — there's nowhere to ask
+   * for one without turning a two-tap action into a form. The entry snapshots
+   * whatever the Rate field says, so the work still bills correctly; the hint
+   * below the field points at the gap.
+   */
+  function createService(name: string): string {
+    return onAddService(name, 0).id
   }
 
-  function handleClientPick(value: string) {
-    if (value === NEW_OPTION) {
-      setCreating('client')
-      return
-    }
-    setClientId(value)
-  }
-
-  function cancelCreate() {
-    setCreating(null)
-    setNewService('')
-    setNewServiceRate('')
-    setNewClient('')
-  }
-
-  function handleAddService() {
-    const name = newService.trim()
-    if (!name) return
-    const svc = onAddService(name, Number(newServiceRate) || 0)
-    setServiceId(svc.id) // select what you just made
-    setRate('')
-    setNewService('')
-    setNewServiceRate('')
-    setCreating(null)
-  }
-
-  function handleAddClient() {
-    const name = newClient.trim()
-    if (!name) return
-    const c = onAddClient(name)
-    setClientId(c.id)
-    setNewClient('')
-    setCreating(null)
-  }
-
-  const lastJob = recentJobs[0] ?? null
+  const pinned = !!serviceId && isFavorite(state.settings.favorites, serviceId, clientId || null)
 
   return (
     <div className="view timer-view">
-      {readyToInvoice.length > 0 && (
-        <div className="panel nudge-panel">
-          <div className="panel-head">
-            <h3>Ready to invoice</h3>
-            <span className="dim tiny">unbilled for {NUDGE_AFTER_DAYS}+ days</span>
-          </div>
-          <ul className="nudge-list">
-            {readyToInvoice.map(c => (
-              <li key={c.id} className="nudge-row">
-                <div className="nudge-who">
-                  <strong>{c.name}</strong>
-                  <span className="dim tiny">
-                    {c.count} entr{c.count === 1 ? 'y' : 'ies'} · oldest {formatDate(c.oldest)} ({c.age}d)
-                  </span>
-                </div>
-                <span className="nudge-amt">{formatMoney(c.amount, state.settings.currency)}</span>
-                <button className="btn" onClick={() => onGoInvoice(c.id)}>Invoice →</button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {running ? (
         <RunningCard
           entry={running}
@@ -256,44 +224,56 @@ export function TimerView({
       ) : (
         <div className="panel start-panel">
           <h2>Track time</h2>
-          {/* One tap from a cold start: the job you did last, no dropdowns. */}
+          {/* One tap from a cold start: the job you did last, no pickers. */}
           {lastJob && (
             <button className="btn primary big again-btn" onClick={() => resume(lastJob)}>
               <span className="chip-dot" style={{ background: lastJob.color }} />
-              ▶ Again — {lastJob.label}
+              <span className="again-label">▶ Again — {lastJob.label}</span>
             </button>
           )}
-          {recentJobs.length > 1 && (
+          {quickJobs.length > 0 && (
             <div className="resume-chips">
-              <span className="quick-label">Or</span>
-              {recentJobs.slice(1).map(j => (
-                <button key={`${j.serviceId}-${j.clientId ?? 'gen'}`} className="chip"
-                  onClick={() => resume(j)} title="Start this again">
-                  <span className="chip-dot" style={{ background: j.color }} />
-                  {j.label}
-                </button>
+              {quickJobs.map(j => (
+                <span key={j.key} className={`chip-pair ${j.pinned ? 'pinned' : ''}`}>
+                  <button className="chip" onClick={() => resume(j)} title="Start this again">
+                    <span className="chip-dot" style={{ background: j.color }} />
+                    {j.label}
+                  </button>
+                  <button
+                    className={`chip-pin ${j.pinned ? 'on' : ''}`}
+                    onClick={() => onToggleFavorite(j.serviceId, j.clientId)}
+                    title={j.pinned ? 'Unpin this job' : 'Pin this job so it stays here'}
+                    aria-pressed={j.pinned}
+                  >
+                    {j.pinned ? '★' : '☆'}
+                  </button>
+                </span>
               ))}
             </div>
           )}
           <div className="field-row">
-            <label className="field">
-              <span>Service</span>
-              <select value={serviceId} onChange={e => handleServicePick(e.target.value)}>
-                <option value="">Pick a service…</option>
-                {services.map(s => (
-                  <option key={s.id} value={s.id}>{s.name} · {formatMoney(s.defaultRate, state.settings.currency)}/hr</option>
-                ))}
-                <option value={NEW_OPTION}>+ New service…</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Client</span>
-              <select value={clientId} onChange={e => handleClientPick(e.target.value)}>
-                <option value="">General (no client)</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                <option value={NEW_OPTION}>+ New client…</option>
-              </select>
-            </label>
+            <Picker
+              label="Service"
+              value={serviceId || null}
+              placeholder="Search services…"
+              createLabel="New service"
+              options={services.map(s => ({
+                id: s.id, label: s.name, color: s.color,
+                hint: `${formatMoney(s.defaultRate, state.settings.currency)}/hr`,
+              }))}
+              onChange={id => { setServiceId(id ?? ''); setRate('') }}
+              onCreate={createService}
+            />
+            <Picker
+              label="Client"
+              value={clientId || null}
+              placeholder="Search clients…"
+              createLabel="New client"
+              noneLabel="General (no client)"
+              options={clients.map(c => ({ id: c.id, label: c.name, hint: c.phone || undefined }))}
+              onChange={id => setClientId(id ?? '')}
+              onCreate={name => onAddClient(name).id}
+            />
             <label className="field rate-field">
               <span>Rate /hr</span>
               <input
@@ -305,49 +285,6 @@ export function TimerView({
             </label>
           </div>
 
-          {/* Create-in-place, so adding a service you just remembered never
-              means leaving the timer screen. */}
-          {creating === 'service' && (
-            <div className="inline-create">
-              <input
-                ref={newServiceRef}
-                placeholder="New service name" value={newService}
-                onChange={e => setNewService(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleAddService()
-                  if (e.key === 'Escape') cancelCreate()
-                }}
-              />
-              <input
-                className="narrow" type="number" min="0" placeholder="$/hr"
-                value={newServiceRate}
-                onChange={e => setNewServiceRate(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleAddService()
-                  if (e.key === 'Escape') cancelCreate()
-                }}
-              />
-              <button className="btn primary" disabled={!newService.trim()} onClick={handleAddService}>Add</button>
-              <button className="btn ghost" onClick={cancelCreate}>Cancel</button>
-            </div>
-          )}
-
-          {creating === 'client' && (
-            <div className="inline-create">
-              <input
-                ref={newClientRef}
-                placeholder="New client name" value={newClient}
-                onChange={e => setNewClient(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleAddClient()
-                  if (e.key === 'Escape') cancelCreate()
-                }}
-              />
-              <button className="btn primary" disabled={!newClient.trim()} onClick={handleAddClient}>Add</button>
-              <button className="btn ghost" onClick={cancelCreate}>Cancel</button>
-            </div>
-          )}
-
           <label className="field">
             <span>Note (optional — e.g. "south side rock wall")</span>
             <input
@@ -356,13 +293,70 @@ export function TimerView({
               onKeyDown={e => { if (e.key === 'Enter') handleStart() }}
             />
           </label>
-          <button className="btn primary big" disabled={!serviceId} onClick={handleStart}>
-            ▶ Start timer
-          </button>
+
+          <div className="start-row">
+            <button className="btn primary big" disabled={!serviceId} onClick={handleStart}>
+              ▶ Start timer
+            </button>
+            {serviceId && (
+              <button
+                className={`btn pin-btn ${pinned ? 'on' : ''}`}
+                onClick={() => onToggleFavorite(serviceId, clientId || null)}
+                title={pinned ? 'Unpin this job' : 'Pin this job for one-tap starts'}
+                aria-pressed={pinned}
+              >
+                {pinned ? '★ Pinned' : '☆ Pin'}
+              </button>
+            )}
+          </div>
+
+          {serviceId && effectiveRate === 0 && (
+            <p className="hint tiny">
+              This job has no rate — it'll log time but bill $0. Type a rate above, or set a
+              default for the service under <strong>Services</strong>.
+            </p>
+          )}
           {services.length === 0 && (
             <p className="hint tiny">
-              No services yet — pick <strong>+ New service…</strong> above to make your first one.
+              No services yet — open <strong>Service</strong> above, type a name, and pick
+              <strong> + New service</strong>.
             </p>
+          )}
+        </div>
+      )}
+
+      {/* Below the timer, deliberately. This is the most valuable panel in the
+          app but it isn't why you opened it — on a phone it used to push the
+          start button off-screen, so the thing you came to do stayed hidden
+          behind the thing you should do later. */}
+      {readyToInvoice.length > 0 && (
+        <div className="panel nudge-panel">
+          <div className="panel-head">
+            <h3>Ready to invoice</h3>
+            <span className="dim tiny">unbilled for {NUDGE_AFTER_DAYS}+ days</span>
+          </div>
+          <ul className="nudge-list">
+            {shownNudges.map(c => (
+              <li key={c.id} className="nudge-row">
+                <div className="nudge-who">
+                  <strong>{c.name}</strong>
+                  {/* Year dropped on purpose — it always reads as the current
+                      one here, and the full date wrapped to two lines on a phone. */}
+                  <span className="dim tiny">
+                    {c.count} entr{c.count === 1 ? 'y' : 'ies'} · oldest {formatDate(c.oldest).replace(/,.*$/, '')} · {c.age}d
+                  </span>
+                </div>
+                <span className="nudge-amt">{formatMoney(c.amount, state.settings.currency)}</span>
+                <button className="btn nudge-go" onClick={() => onGoInvoice(c.id)}>Invoice →</button>
+              </li>
+            ))}
+          </ul>
+          {readyToInvoice.length > NUDGE_PREVIEW && (
+            <button className="btn ghost nudge-more" onClick={() => setAllNudges(v => !v)}>
+              {allNudges
+                ? 'Show fewer'
+                : `Show ${readyToInvoice.length - NUDGE_PREVIEW} more · ${formatMoney(hiddenNudgeTotal, state.settings.currency)}`}
+            </button>
           )}
         </div>
       )}
@@ -375,14 +369,19 @@ export function TimerView({
           </button>
         </div>
         <div className="quick-row">
-          <label className="field">
-            <span>Filter by client</span>
-            <select value={filterClient} onChange={e => setFilterClient(e.target.value)}>
-              <option value="">All</option>
-              <option value="general">General (no client)</option>
-              {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
+          {/* "All" is the empty selection here, so General has to be a real
+              option rather than the picker's none-row. */}
+          <Picker
+            label="Filter by client"
+            value={filterClient || null}
+            noneLabel="All clients"
+            placeholder="Search clients…"
+            options={[
+              { id: 'general', label: 'General (no client)' },
+              ...state.clients.map(c => ({ id: c.id, label: c.name })),
+            ]}
+            onChange={id => setFilterClient(id ?? '')}
+          />
           <label className="field">
             <span>Payment</span>
             <select value={filterPayment} onChange={e => setFilterPayment(e.target.value as PaymentState | '')}>
@@ -485,16 +484,21 @@ function ManualEntryForm({
   return (
     <div className="manual-form">
       <div className="field-row">
-        <label className="field"><span>Service</span>
-          <select value={serviceId} onChange={e => { setServiceId(e.target.value); setRate('') }}>
-            <option value="">Pick…</option>
-            {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select></label>
-        <label className="field"><span>Client</span>
-          <select value={clientId} onChange={e => setClientId(e.target.value)}>
-            <option value="">General (no client)</option>
-            {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></label>
+        <Picker
+          label="Service"
+          value={serviceId || null}
+          placeholder="Search services…"
+          options={services.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+          onChange={id => { setServiceId(id ?? ''); setRate('') }}
+        />
+        <Picker
+          label="Client"
+          value={clientId || null}
+          noneLabel="General (no client)"
+          placeholder="Search clients…"
+          options={state.clients.map(c => ({ id: c.id, label: c.name }))}
+          onChange={id => setClientId(id ?? '')}
+        />
         <label className="field"><span>Date</span>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
       </div>

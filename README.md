@@ -22,6 +22,18 @@ per-day subtotals and a grand total, ready to print or Save-as-PDF.
 - **Invoice** — a frozen selection of unbilled entries for one client. Entries get marked
   `invoiced` so they can't be double-billed.
 
+## On a phone
+
+traction is an installable PWA — **Share → Add to Home Screen** on iOS, **⋮ → Install
+app** on Android. Installed, it launches straight to the timer with no browser chrome,
+navigates from a thumb-reach bottom tab bar, and **opens with no signal**. Work logged
+offline syncs itself the moment the network returns.
+
+Because both devices are localStorage-first, a phone and a PC can drift apart. When they
+meet again traction **merges** the two copies instead of letting the newer one win, so
+tracked time can't be silently dropped. The trade-off is that deletions made while
+offline may reappear — see [the how-to](./docs/how-to.md#8-using-it-on-your-phone).
+
 ## Stack
 
 Vite 8 + React 19 + TypeScript 6 + Tailwind v4 (plugin). Supabase for cross-device sync
@@ -42,3 +54,11 @@ Deploys to `sakhalteam.github.io/traction/` via GitHub Actions.
 
 Without sign-in the app still works fully — data just lives in this browser's localStorage.
 Sign in to sync across your laptop and PC.
+
+## Scripts
+
+- `node scripts/make-icons.mjs` — regenerate the app icons in `public/`. They're drawn
+  in code (no image dependency), so edit the script rather than the PNGs.
+- `node scripts/smoke.mjs` — end-to-end smoke test of the timer, invoicing, pinning and
+  picker flows against a running `npm run dev`. Needs a browser driver first:
+  `npm i --no-save playwright-core` (drives your installed Edge).

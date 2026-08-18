@@ -149,11 +149,30 @@ export interface Invoice {
   createdAt: number
 }
 
+/**
+ * A pinned service+client pairing, startable in one tap.
+ *
+ * Deliberately not a copy of a TimeEntry: a favourite is the *shape* of a job
+ * ("mow the Steins"), and its rate is resolved fresh at start time so a pinned
+ * job can't quietly keep billing last season's price. The per-instance detail
+ * (the note) still gets typed when you start it.
+ */
+export interface Favorite {
+  serviceId: string
+  clientId: string | null
+}
+
 export interface Settings {
   businessName: string
   businessEmail: string
   businessPhone: string
   businessAddress: string
+  /**
+   * Jobs pinned to the top of the timer screen. Recency alone stops working
+   * once you juggle a dozen clients — the job you do every Tuesday falls off
+   * the list by Thursday. Absent on states saved before favourites existed.
+   */
+  favorites?: Favorite[]
   /** Monotonic counter for auto invoice numbers. */
   invoiceCounter: number
   /** Currency symbol prefix, e.g. "$". */

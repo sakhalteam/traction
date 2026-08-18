@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabaseClient'
 import {
   emptyState, isEmptyState, loadLocal, saveLocal, touchLocal, saveRemote, loadRemote,
-  getLocalUpdatedAt, isNewer,
+  getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
   addDays,
 } from './store'
@@ -14,6 +14,7 @@ import type {
 import { deleteReceipt, uploadJobPhoto } from './receipts'
 import { useNow } from './useNow'
 import { Chrome, type CloudStatus, type View } from './Chrome'
+import { TimerBar } from './TimerBar'
 import { TimerView } from './views/TimerView'
 import { ClientsView } from './views/ClientsView'
 import { ServicesView } from './views/ServicesView'
@@ -66,6 +67,8 @@ export default function App() {
     // otherwise every pull would leave this device looking like the freshest writer.
     touchLocal(remote.updatedAt)
     needsRemoteSave.current = false
+    // This device now matches the cloud exactly — nothing left to push.
+    setDirty(false)
   }, [])
 
   /**
@@ -89,35 +92,6 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // On login, prefer the newest of local vs remote.
-  useEffect(() => {
-    if (!user) return
-    loadRemote(supabase).then(remote => {
-      if (remote && cloudWins(remote, stateRef.current)) adoptRemote(remote)
-    })
-  }, [user, adoptRemote, cloudWins])
-
-  // Re-pull when the tab regains focus, so a stale laptop tab adopts newer work
-  // from the PC instead of clobbering it. Skipped while we have unsynced local
-  // edits pending (our own debounced save will push those first).
-  useEffect(() => {
-    if (!user) return
-    const pull = async () => {
-      if (document.visibilityState === 'hidden' || needsRemoteSave.current) return
-      const remote = await loadRemote(supabase)
-      if (remote && cloudWins(remote, stateRef.current)) {
-        adoptRemote(remote)
-        flash('pulled')
-      }
-    }
-    window.addEventListener('focus', pull)
-    document.addEventListener('visibilitychange', pull)
-    return () => {
-      window.removeEventListener('focus', pull)
-      document.removeEventListener('visibilitychange', pull)
-    }
-  }, [user, adoptRemote, cloudWins, flash])
-
   const login = useCallback(() => {
     supabase.auth.signInWithOAuth({
       provider: 'github',
@@ -130,26 +104,106 @@ export default function App() {
     setUser(null)
   }, [])
 
-  const scheduleRemoteSave = useCallback((s: TractionState, force = false) => {
-    needsRemoteSave.current = true
-    clearTimeout(remoteSaveTimer.current)
-    remoteSaveTimer.current = setTimeout(async () => {
-      if (!needsRemoteSave.current) return
-      setCloudStatus('saving')
-      const result = await saveRemote(supabase, s, { force })
-      if (result === 'stale') {
-        // The cloud holds a version this device never loaded — classic case is a
-        // fresh laptop edited before its first pull landed. Take the cloud copy
-        // rather than flattening a real dataset with a nearly-empty one.
-        const remote = await loadRemote(supabase)
-        if (remote) adoptRemote(remote)
+  /**
+   * Push a state document to the cloud, reconciling if the cloud moved ahead.
+   *
+   * Returns nothing; all outcomes land in the dirty flag, which is what makes a
+   * failed save recoverable after a reload rather than forgotten.
+   */
+  const push = useCallback(async (s: TractionState, force = false) => {
+    setCloudStatus('saving')
+    const result = await saveRemote(supabase, s, { force })
+
+    if (result === 'stale') {
+      // The cloud holds a version this device never read. Both copies may hold
+      // real work, so union them instead of picking a winner — see mergeStates.
+      const remote = await loadRemote(supabase)
+      if (!remote) {
+        flash('error')
+        return
+      }
+      // An untouched device has nothing worth merging; just take the cloud copy.
+      if (isEmptyState(stateRef.current)) {
+        adoptRemote(remote)
         flash('pulled')
         return
       }
-      if (result === 'saved') needsRemoteSave.current = false
-      flash(result === 'saved' ? 'saved' : 'error')
-    }, REMOTE_SAVE_DELAY)
+      const merged = mergeStates(stateRef.current, remote.state)
+      setStateRaw(merged)
+      saveLocal(merged)
+      touchLocal()
+      // Force past the compare-and-swap: we've just read the cloud's version and
+      // folded it in, so the merged copy is strictly the most complete one.
+      const after = await saveRemote(supabase, merged, { force: true })
+      const ok = after === 'saved'
+      needsRemoteSave.current = !ok
+      setDirty(!ok)
+      flash(ok ? 'merged' : 'error')
+      return
+    }
+
+    const ok = result === 'saved'
+    needsRemoteSave.current = !ok
+    setDirty(!ok)
+    flash(ok ? 'saved' : 'error')
   }, [adoptRemote, flash])
+
+  const scheduleRemoteSave = useCallback((s: TractionState, force = false) => {
+    needsRemoteSave.current = true
+    setDirty(true)
+    clearTimeout(remoteSaveTimer.current)
+    remoteSaveTimer.current = setTimeout(() => {
+      if (!needsRemoteSave.current) return
+      void push(s, force)
+    }, REMOTE_SAVE_DELAY)
+  }, [push])
+
+  /**
+   * Reconcile this device with the cloud. One entry point on purpose: the
+   * direction is decided by whether we're holding unsynced edits, so a pull and
+   * a push can never run against each other and undo one another's work.
+   *
+   * Dirty means push — and `push` merges if the cloud has moved on, so local
+   * work is never traded away for being a few seconds older. Clean means pull,
+   * which is the cheap common case (opening the laptop after a day on the phone).
+   */
+  const sync = useCallback(async () => {
+    if (!navigator.onLine) return
+    if (isDirty()) {
+      // Supersede any debounced save rather than letting both fire.
+      clearTimeout(remoteSaveTimer.current)
+      needsRemoteSave.current = true
+      await push(stateRef.current)
+      return
+    }
+    const remote = await loadRemote(supabase)
+    if (remote && cloudWins(remote, stateRef.current)) {
+      adoptRemote(remote)
+      flash('pulled')
+    }
+  }, [adoptRemote, cloudWins, flash, push])
+
+  /**
+   * Sync on sign-in, whenever the tab comes back to the foreground, and the
+   * moment the network returns. That last one is what rescues an entry logged in
+   * a dead-zone: without it, a failed save waits for the next unrelated edit.
+   */
+  useEffect(() => {
+    if (!user) return
+    const run = () => {
+      if (document.visibilityState === 'hidden') return
+      void sync()
+    }
+    run()
+    window.addEventListener('focus', run)
+    window.addEventListener('online', run)
+    document.addEventListener('visibilitychange', run)
+    return () => {
+      window.removeEventListener('focus', run)
+      window.removeEventListener('online', run)
+      document.removeEventListener('visibilitychange', run)
+    }
+  }, [user, sync])
 
   /** Single mutation entry point: applies a producer, persists, schedules sync. */
   const mutate = useCallback((
@@ -179,8 +233,12 @@ export default function App() {
     mutate(s => ({
       ...s,
       clients: s.clients.filter(c => c.id !== id),
-      // Orphan any entries pointing here rather than deleting billable history.
-      entries: s.entries.map(e => e.clientId === id ? { ...e, clientId: null } : e),
+      // Orphan any entries pointing here rather than deleting billable history —
+      // but never touch invoiced ones. An entry on an invoice is frozen
+      // everywhere else in the app, and rewriting it here would let deleting a
+      // client silently edit what a sent invoice was built from.
+      entries: s.entries.map(e => e.clientId === id && !e.invoiceId ? { ...e, clientId: null } : e),
+      expenses: s.expenses.map(x => x.clientId === id && !x.invoiceId ? { ...x, clientId: null } : x),
     }))
   }, [mutate])
 
@@ -298,46 +356,64 @@ export default function App() {
     }))
   }, [mutate])
 
+  /** Pin / unpin a service+client pairing so it stays one tap away. */
+  const toggleFav = useCallback((serviceId: string, clientId: string | null) => {
+    mutate(s => ({
+      ...s,
+      settings: { ...s.settings, favorites: toggleFavorite(s.settings.favorites, serviceId, clientId) },
+    }))
+  }, [mutate])
+
   // ---- Invoice actions ----
+  /**
+   * Build the invoice from the CURRENT state, then apply it.
+   *
+   * The invoice is deliberately constructed outside the state producer. Callers
+   * need the new invoice back synchronously (the builder opens it the moment
+   * it's made), and a producer passed to setState is not guaranteed to have run
+   * by the time this function returns — React only happens to invoke it eagerly
+   * while no other update is pending. Building here makes the return value real
+   * instead of relying on that.
+   */
   const createInvoice = useCallback((
     clientId: string, entryIds: string[], expenseIds: string[], periodStart: string, periodEnd: string,
     opts: { alreadyPaid?: boolean } = {},
   ): Invoice => {
-    const id = crypto.randomUUID()
-    let created: Invoice | null = null
-    mutate(s => {
-      const num = `INV-${String(s.settings.invoiceCounter).padStart(4, '0')}`
-      // Freeze labor AND expense lines NOW so later edits can't rewrite the invoice.
-      const chosen = s.entries.filter(e => entryIds.includes(e.id))
-      const snapshot = buildBreakdown(chosen, s.services)
-      const expensesSnapshot = s.expenses
-        .filter(x => expenseIds.includes(x.id))
-        .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0 }))
-      // Work settled outside traction (cash on the day, an old paper invoice) is
-      // dated to when it happened, not today — issuing a 2025 job "today" would
-      // land it in the wrong month in Reports.
-      const issuedDate = opts.alreadyPaid ? periodEnd : todayISO()
-      const invoice: Invoice = {
-        id, clientId, number: num, issuedDate,
-        // Freeze the terms in effect today; changing netDays later must not
-        // retroactively make already-issued invoices overdue.
-        dueDate: addDays(issuedDate, s.settings.netDays),
-        periodStart, periodEnd, entryIds: [...entryIds], snapshot,
-        expenseIds: [...expenseIds], expensesSnapshot,
-        status: opts.alreadyPaid ? 'paid' : 'draft',
-        paidDate: opts.alreadyPaid ? periodEnd : null,
-        notes: '', createdAt: Date.now(),
-      }
-      created = invoice
-      return {
-        ...s,
-        invoices: [...s.invoices, invoice],
-        entries: s.entries.map(e => entryIds.includes(e.id) ? { ...e, invoiceId: invoice.id } : e),
-        expenses: s.expenses.map(x => expenseIds.includes(x.id) ? { ...x, invoiceId: invoice.id } : x),
-        settings: { ...s.settings, invoiceCounter: s.settings.invoiceCounter + 1 },
-      }
-    })
-    return created!
+    const s = stateRef.current
+    // Freeze labor AND expense lines NOW so later edits can't rewrite the invoice.
+    const snapshot = buildBreakdown(s.entries.filter(e => entryIds.includes(e.id)), s.services)
+    const expensesSnapshot = s.expenses
+      .filter(x => expenseIds.includes(x.id))
+      .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0 }))
+    // Work settled outside traction (cash on the day, an old paper invoice) is
+    // dated to when it happened, not today — issuing a 2025 job "today" would
+    // land it in the wrong month in Reports.
+    const issuedDate = opts.alreadyPaid ? periodEnd : todayISO()
+    const invoice: Invoice = {
+      id: crypto.randomUUID(),
+      clientId,
+      number: `INV-${String(s.settings.invoiceCounter).padStart(4, '0')}`,
+      issuedDate,
+      // Freeze the terms in effect today; changing netDays later must not
+      // retroactively make already-issued invoices overdue.
+      dueDate: addDays(issuedDate, s.settings.netDays),
+      periodStart, periodEnd, entryIds: [...entryIds], snapshot,
+      expenseIds: [...expenseIds], expensesSnapshot,
+      status: opts.alreadyPaid ? 'paid' : 'draft',
+      paidDate: opts.alreadyPaid ? periodEnd : null,
+      notes: '', createdAt: Date.now(),
+    }
+
+    mutate(prev => ({
+      ...prev,
+      invoices: [...prev.invoices, invoice],
+      entries: prev.entries.map(e => entryIds.includes(e.id) ? { ...e, invoiceId: invoice.id } : e),
+      expenses: prev.expenses.map(x => expenseIds.includes(x.id) ? { ...x, invoiceId: invoice.id } : x),
+      // Step from whatever the counter actually is at apply time, so a number is
+      // never reused even if state moved between building and applying.
+      settings: { ...prev.settings, invoiceCounter: prev.settings.invoiceCounter + 1 },
+    }))
+    return invoice
   }, [mutate])
 
   // Add / edit / remove a one-off charge directly on an invoice (backed by a
@@ -468,6 +544,7 @@ export default function App() {
             onGoInvoice={goInvoice}
             onAttachPhoto={attachEntryPhoto}
             onRemovePhoto={removeEntryPhoto}
+            onToggleFavorite={toggleFav}
           />
         )}
         {view === 'clients' && (
@@ -509,6 +586,7 @@ export default function App() {
           />
         )}
         {view === 'reports' && <ReportsView state={state} />}
+
         {view === 'settings' && (
           <SettingsView
             state={state}
@@ -518,6 +596,19 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* The running clock follows you across every tab except the one that
+          already shows it full size — doubling it up on the Timer screen would
+          just cover the log with a copy of the card above it. */}
+      {runningEntry && view !== 'timer' && (
+        <TimerBar
+          entry={runningEntry}
+          state={state}
+          now={nowTick}
+          onStop={stopTimer}
+          onOpen={() => setView('timer')}
+        />
+      )}
     </div>
   )
 }

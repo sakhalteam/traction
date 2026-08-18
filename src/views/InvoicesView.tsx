@@ -5,6 +5,7 @@ import {
   agingOf, AGING_LABELS, type AgingBucket,
 } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
+import { Picker } from './Picker'
 
 export function InvoicesView({
   state, initialClientId, onCreate, onSetStatus, onUpdate, onDelete,
@@ -124,11 +125,13 @@ function InvoiceBuilder({
     <div className="panel">
       <h2>New invoice</h2>
       <div className="field-row">
-        <label className="field"><span>Client</span>
-          <select value={clientId} onChange={e => resetClient(e.target.value)}>
-            <option value="">Pick a client…</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></label>
+        <Picker
+          label="Client"
+          value={clientId || null}
+          placeholder="Search clients…"
+          options={clients.map(c => ({ id: c.id, label: c.name, hint: c.phone || undefined }))}
+          onChange={id => resetClient(id ?? '')}
+        />
         <label className="field"><span>From (optional)</span>
           <input type="date" value={start} onChange={e => setStart(e.target.value)} /></label>
         <label className="field"><span>To</span>

@@ -6,6 +6,7 @@ import {
   paymentStateOf,
 } from '../store'
 import { JobPhotos } from './JobPhotos'
+import { Picker } from './Picker'
 
 export function EntryRow({
   entry, state, now, onUpdate, onDelete, onStop, onContinue, showDate = false,
@@ -209,19 +210,21 @@ function EntryEditor({
   return (
     <div className="entry-editor">
       <div className="field-row">
-        <label className="field">
-          <span>Service</span>
-          <select value={serviceId} onChange={e => setServiceId(e.target.value)}>
-            {state.services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>Client</span>
-          <select value={clientId} onChange={e => setClientId(e.target.value)}>
-            <option value="">General (no client)</option>
-            {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
+        <Picker
+          label="Service"
+          value={serviceId || null}
+          placeholder="Search services…"
+          options={state.services.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+          onChange={id => setServiceId(id ?? serviceId)}
+        />
+        <Picker
+          label="Client"
+          value={clientId || null}
+          noneLabel="General (no client)"
+          placeholder="Search clients…"
+          options={state.clients.map(c => ({ id: c.id, label: c.name }))}
+          onChange={id => setClientId(id ?? '')}
+        />
         <label className="field narrow-field">
           <span>Rate /hr</span>
           <input type="number" min="0" value={rate} onChange={e => setRate(e.target.value)} />

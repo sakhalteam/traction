@@ -3,6 +3,7 @@ import type { Expense, TractionState } from '../types'
 import { EXPENSE_CATEGORIES, formatDate, formatMoney, makeExpense, todayISO } from '../store'
 import { supabase } from '../supabaseClient'
 import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../receipts'
+import { Picker } from './Picker'
 
 export function ExpensesView({
   state, onAdd, onUpdate, onDelete,
@@ -120,11 +121,14 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
             <button type="button" className={!billable ? 'active' : ''} onClick={() => setBillable(false)}>Overhead</button>
           </div>
         </label>
-        <label className="field"><span>{billable ? 'Client (bill to)' : 'Client (optional)'}</span>
-          <select value={clientId} onChange={e => setClientId(e.target.value)}>
-            <option value="">{billable ? 'General (no client)' : 'None'}</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></label>
+        <Picker
+          label={billable ? 'Client (bill to)' : 'Client (optional)'}
+          value={clientId || null}
+          noneLabel={billable ? 'General (no client)' : 'None'}
+          placeholder="Search clients…"
+          options={clients.map(c => ({ id: c.id, label: c.name }))}
+          onChange={id => setClientId(id ?? '')}
+        />
         <label className="field"><span>Note</span>
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></label>
       </div>
@@ -313,11 +317,14 @@ function ExpenseEditor({
             <button type="button" className={!x.billable ? 'active' : ''} onClick={() => set({ billable: false })}>Overhead</button>
           </div>
         </label>
-        <label className="field"><span>Client</span>
-          <select value={x.clientId ?? ''} onChange={e => set({ clientId: e.target.value || null })}>
-            <option value="">{x.billable ? 'General (no client)' : 'None'}</option>
-            {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></label>
+        <Picker
+          label="Client"
+          value={x.clientId}
+          noneLabel={x.billable ? 'General (no client)' : 'None'}
+          placeholder="Search clients…"
+          options={state.clients.map(c => ({ id: c.id, label: c.name }))}
+          onChange={id => set({ clientId: id })}
+        />
         <label className="field"><span>Note</span>
           <input value={x.note} onChange={e => set({ note: e.target.value })} /></label>
       </div>

@@ -21,6 +21,18 @@
   --radius: 16px;
   --radius-sm: 10px;
   --shadow: 0 10px 40px -12px rgba(0, 0, 0, 0.6);
+
+  /* Space the fixed mobile tab bar occupies. Zero on desktop, where the header
+     navigates instead — everything that sits above the bar reads this, so the
+     two layouts share one set of offsets. */
+  --tabbar-h: 0px;
+  /* Installed on a phone the app paints edge to edge (viewport-fit=cover), so
+     every fixed edge has to buy back the notch and the home indicator. */
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -662,4 +674,382 @@ textarea { resize: vertical; }
   .invoice-sheet { font-size: 11pt; }
   .invoice-table th, .invoice-table td { padding: 4px 8px; }
   @page { margin: 14mm; }
+}
+
+/* ==========================================================================
+   Mobile shell
+   --------------------------------------------------------------------------
+   Below the --tabbar breakpoint the header stops navigating and a bottom tab
+   bar takes over: seven pills wrapping under a brand is unusable at 360px, and
+   the top of a phone screen is the hardest place to reach one-handed anyway.
+   ========================================================================== */
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Room at the foot of every page for the tab bar and the running-timer bar, so
+   the last row of a list is never trapped underneath them. */
+.content {
+  padding-bottom: calc(96px + var(--tabbar-h) + var(--safe-b));
+  padding-left: max(20px, var(--safe-l));
+  padding-right: max(20px, var(--safe-r));
+}
+
+.chrome { padding-top: calc(12px + var(--safe-t)); }
+
+/* ===== Bottom tab bar (mobile only) ===== */
+.tabbar { display: none; }
+
+@media (max-width: 860px) {
+  :root { --tabbar-h: 58px; }
+
+  .nav { display: none; }
+
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+    padding-bottom: var(--safe-b);
+    background: rgba(11, 17, 32, 0.92);
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border-top: 1px solid var(--border);
+  }
+
+  .tab {
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-height: var(--tabbar-h);
+    background: none; border: none; cursor: pointer;
+    color: var(--text-faint); font-family: inherit; font-size: 0.66rem;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
+  }
+  .tab svg { width: 22px; height: 22px; }
+  .tab.active { color: var(--accent); }
+  .tab.open { color: var(--text); }
+  .tab:active { background: rgba(148, 163, 184, 0.08); }
+
+  /* A green dot on the Timer tab, so a running clock stays visible from any
+     screen even when a sheet is covering the timer bar. */
+  .tab-live {
+    position: absolute; top: 7px; left: 50%; margin-left: 8px;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent-glow); animation: pulse 1.6s infinite;
+  }
+}
+
+/* ===== Sheets (More menu, pickers) ===== */
+.sheet-scrim {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(2, 6, 16, 0.6);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  border: none; padding: 0; cursor: pointer;
+  animation: fade-in 0.14s ease-out;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-up {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.more-sheet {
+  position: fixed; z-index: 75;
+  left: max(12px, var(--safe-l)); right: max(12px, var(--safe-r));
+  bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px);
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px; border-radius: var(--radius);
+  background: var(--panel-solid); border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  animation: sheet-up 0.16s ease-out;
+}
+.more-row {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 48px; padding: 0 14px; border-radius: var(--radius-sm);
+  background: none; border: none; cursor: pointer;
+  color: var(--text); font-family: inherit; font-size: 0.95rem; text-align: left;
+}
+.more-row svg { width: 20px; height: 20px; color: var(--text-dim); flex: none; }
+.more-row:hover { background: rgba(148, 163, 184, 0.1); }
+.more-row.active { background: rgba(34, 197, 94, 0.12); color: var(--accent); }
+.more-row.active svg { color: var(--accent); }
+
+/* The More sheet only exists while the tab bar does, but keep it sane if it
+   ever renders wide: anchor it bottom-right instead of stretching full width. */
+@media (min-width: 861px) {
+  .more-sheet { left: auto; right: 24px; width: 260px; bottom: 24px; }
+}
+
+/* ===== Running timer bar ===== */
+.timer-bar {
+  position: fixed; z-index: 55;
+  left: max(10px, var(--safe-l)); right: max(10px, var(--safe-r));
+  bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px);
+  max-width: 940px; margin: 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius);
+  background:
+    linear-gradient(120deg, rgba(34, 197, 94, 0.16), rgba(16, 185, 129, 0.08)),
+    rgba(13, 22, 38, 0.95);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  box-shadow: 0 12px 36px -14px rgba(0, 0, 0, 0.85), 0 0 30px -18px var(--accent-glow);
+  animation: sheet-up 0.18s ease-out;
+}
+.timer-bar-main {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: none; padding: 6px 0; cursor: pointer;
+  color: var(--text); font-family: inherit; text-align: left;
+}
+.timer-bar-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  box-shadow: 0 0 0 0 var(--accent-glow); animation: pulse 1.6s infinite;
+}
+.timer-bar-text { min-width: 0; display: flex; flex-direction: column; }
+.timer-bar-title {
+  font-weight: 600; font-size: 0.92rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.timer-bar-sub {
+  color: var(--text-dim); font-size: 0.76rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.timer-bar-figures {
+  display: flex; flex-direction: column; align-items: flex-end; flex: none;
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.timer-bar-clock { font-size: 1.05rem; font-weight: 700; }
+.timer-bar-amt { font-size: 0.76rem; color: var(--accent); font-weight: 600; }
+.timer-bar-stop {
+  flex: none; width: 46px; height: 46px; border-radius: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
+  background: rgba(244, 63, 94, 0.18); border: 1px solid rgba(244, 63, 94, 0.5);
+  color: #fecdd3; font-family: inherit;
+}
+.timer-bar-stop:hover { background: rgba(244, 63, 94, 0.3); }
+.timer-bar-stop:active { transform: translateY(1px); }
+
+/* ===== Picker (searchable select) ===== */
+.picker-field { position: relative; }
+.picker-trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 42px; padding: 9px 11px; border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border);
+  color: var(--text); font-family: inherit; font-size: 0.92rem; text-align: left; cursor: pointer;
+}
+.picker-trigger:hover { border-color: var(--border-strong); }
+.picker-trigger.empty { color: var(--text-dim); }
+.picker-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-caret { width: 16px; height: 16px; flex: none; color: var(--text-faint); }
+
+/*
+ * Anchored to the TOP, on phones as well as desktops, which is not the usual
+ * bottom-sheet convention — and is deliberate. The sheet's first element is a
+ * focused text input, so opening it raises the on-screen keyboard. iOS Safari
+ * does not shrink the layout viewport for that keyboard, so a bottom-anchored
+ * sheet would sit underneath it, hiding the search box you just focused. From
+ * the top, the field and the first several results stay visible on every
+ * platform, and the list scrolls for the rest.
+ */
+.picker-sheet {
+  position: fixed; z-index: 75;
+  left: max(12px, var(--safe-l)); right: max(12px, var(--safe-r));
+  top: calc(var(--safe-t) + 12px); bottom: auto;
+  max-height: min(62vh, 520px);
+  display: flex; flex-direction: column;
+  border-radius: var(--radius); overflow: hidden;
+  background: var(--panel-solid); border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  animation: sheet-drop 0.16s ease-out;
+}
+@keyframes sheet-drop {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+/* Centred like a command palette once there's room for it. */
+@media (min-width: 861px) {
+  .picker-sheet {
+    left: 50%; right: auto; margin-left: min(-260px, calc(-50vw + 24px));
+    top: 12vh; width: min(520px, calc(100vw - 48px));
+  }
+}
+
+.picker-search {
+  display: flex; align-items: center; gap: 8px; padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.picker-search input { flex: 1; }
+.picker-close { flex: none; }
+
+.picker-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.picker-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 46px; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: none; border: none; cursor: pointer;
+  color: var(--text); font-family: inherit; font-size: 0.94rem; text-align: left;
+}
+.picker-row.active { background: rgba(148, 163, 184, 0.14); }
+.picker-row.create { color: var(--accent); }
+.picker-row-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-row-hint { color: var(--text-faint); font-size: 0.8rem; flex: none; }
+.picker-tick { color: var(--accent); flex: none; }
+.picker-empty { padding: 18px 12px; color: var(--text-dim); font-size: 0.88rem; text-align: center; }
+
+/* ===== Pinned jobs ===== */
+.chip-pair {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--border); border-radius: 999px; overflow: hidden;
+  background: rgba(148, 163, 184, 0.1);
+}
+.chip-pair.pinned { border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.1); }
+.chip-pair .chip { border: none; background: none; border-radius: 0; padding: 7px 6px 7px 12px; }
+.chip-pin {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  color: var(--text-faint); font-size: 0.9rem; padding: 0 11px 0 5px;
+  -webkit-tap-highlight-color: transparent;
+}
+.chip-pin:hover { color: var(--amber); }
+.chip-pin.on { color: var(--amber); }
+
+.start-row { display: flex; gap: 10px; align-items: stretch; margin-top: 6px; }
+.start-row .btn.big { flex: 1; width: auto; margin-top: 0; }
+.pin-btn { flex: none; white-space: nowrap; }
+.pin-btn.on { color: var(--amber); border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.12); }
+
+/* ==========================================================================
+   Phone layout
+   ========================================================================== */
+@media (max-width: 640px) {
+  .content { padding-top: 16px; }
+  .panel { padding: 14px; border-radius: 14px; }
+  h2 { font-size: 1.2rem; }
+
+  /* iOS zooms the page whenever a focused input is under 16px. Every field here
+     is a tap target on a phone, so this has to be global, not per-form. */
+  input, select, textarea { font-size: 16px; }
+
+  /* One field per line by default; the deliberately-narrow ones (hours,
+     minutes, rate) pair up two to a row instead of each eating a whole line. */
+  .field-row { gap: 10px; margin-bottom: 10px; }
+  .field-row > .field { flex: 1 1 100%; }
+  .field-row > .narrow-field, .field-row > .rate-field { flex: 1 1 calc(50% - 5px); }
+  .narrow { flex: 1 1 calc(50% - 5px); width: auto; }
+
+  /* Thumb-sized controls. 44px is the smallest target that's reliably hittable
+     one-handed, and this app gets used outdoors, in gloves, in a hurry. */
+  .btn { min-height: 44px; padding: 10px 16px; }
+  .btn.tiny { min-height: 38px; }
+  .icon-btn {
+    min-width: 42px; min-height: 42px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .chip { min-height: 40px; }
+  .chip-pin { min-width: 40px; display: inline-flex; align-items: center; justify-content: center; }
+
+  /* Chrome carries the brand and the account only — navigation is the tab bar. */
+  .chrome { gap: 10px; padding-left: max(14px, var(--safe-l)); padding-right: max(14px, var(--safe-r)); }
+  .chrome-left { gap: 8px; }
+  .home-btn { font-size: 0.7rem; }
+  .brand { font-size: 1.05rem; }
+  .auth-name { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cloud-indicator { font-size: 0.7rem; }
+
+  /* Entry rows go two-line: identity on top, money and actions below, so the
+     buttons get room to be 42px without crushing the description. */
+  .entry-row:not(.editing) {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas: "swatch main" "figures actions";
+    align-items: center; column-gap: 10px; row-gap: 4px;
+  }
+  .entry-row:not(.editing) .entry-swatch { grid-area: swatch; align-self: stretch; height: auto; min-height: 30px; }
+  .entry-row:not(.editing) .entry-main { grid-area: main; }
+  .entry-row:not(.editing) .entry-figures {
+    grid-area: figures; flex-direction: row; align-items: baseline; gap: 10px; justify-self: start;
+  }
+  .entry-row:not(.editing) .entry-actions { grid-area: actions; justify-self: end; gap: 0; }
+  .entry-row:not(.editing) .entry-photos { grid-column: 1 / -1; padding-left: 0; }
+
+  .nudge-row { gap: 8px; }
+  .nudge-row .btn { width: 100%; }
+  .nudge-amt { font-size: 1rem; }
+
+  .running-clock { font-size: 2.1rem; }
+  .runaway-nudge { width: calc(100% - 28px); }
+  .runaway-actions { width: 100%; }
+  .runaway-actions .btn { flex: 1; }
+
+  .invoice-sheet { padding: 20px 16px; border-radius: 12px; }
+  .report-table, .invoice-table { font-size: 0.85rem; }
+
+  .builder-foot { flex-direction: column; align-items: stretch; }
+  .builder-buttons { justify-content: stretch; }
+  .builder-buttons .btn { flex: 1; }
+  .editor-actions .btn { flex: 1; }
+  .detail-toolbar .btn { flex: 1 1 auto; }
+
+  .stat-value { font-size: 1.3rem; }
+  .donut-wrap { width: 168px; flex-basis: 168px; }
+  .donut-svg { width: 168px; height: 168px; }
+}
+
+/* Very narrow phones: drop the tab labels to icons before they wrap. */
+@media (max-width: 340px) {
+  .tab span { display: none; }
+  .tab { gap: 0; }
+}
+
+/* Fixed bars are chrome, not content — never print them. */
+@media print {
+  .tabbar, .timer-bar, .more-sheet, .sheet-scrim { display: none !important; }
+  .content { padding-bottom: 0; }
+}
+
+/* ===== Ready-to-invoice rows =====
+   A grid, not a wrapping flex row: client names vary wildly in length, and with
+   flex the amount and the button landed in a different place on every line. */
+.nudge-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas: "who amount go";
+  align-items: center; gap: 10px 12px; flex-wrap: nowrap;
+}
+.nudge-who { grid-area: who; }
+.nudge-amt { grid-area: amount; margin-left: 0; }
+.nudge-go { grid-area: go; }
+.nudge-more { width: 100%; margin-top: 8px; }
+
+@media (max-width: 640px) {
+  /* Name and amount share the top line; the action gets a full-width row so it
+     is a comfortable target rather than a squeezed sliver. */
+  .nudge-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "who amount"
+      "go  go";
+  }
+}
+
+/* Keep the resume button on one line — a long "Service · Client" label used to
+   wrap and drag the colour dot away from the text it belongs to. */
+.again-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+@media (max-width: 860px) {
+  /* Toggl's favourites bar is a swipeable strip, and for good reason: wrapped
+     onto a phone these chips stacked eight rows deep and pushed the actual
+     start controls below the fold. One line, scroll sideways for the rest. */
+  .resume-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* Bleed to the panel edges so a half-visible chip signals "more this way". */
+    margin: 0 -14px 14px; padding: 2px 14px 6px;
+  }
+  .resume-chips::-webkit-scrollbar { display: none; }
+  .chip-pair { flex: none; scroll-snap-align: start; }
+  .chip-pair .chip { white-space: nowrap; }
 }

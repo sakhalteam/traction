@@ -5,6 +5,7 @@ import type {
   BreakdownLine,
   Client,
   Expense,
+  Favorite,
   Invoice,
   Service,
   Settings,
@@ -17,6 +18,7 @@ export const EXPENSE_CATEGORIES = ['Materials', 'Fuel', 'Equipment', 'Fees', 'Su
 const STORAGE_KEY = 'traction-state'
 const UPDATED_AT_KEY = 'traction-updated-at'
 const REMOTE_SEEN_KEY = 'traction-remote-seen'
+const DIRTY_KEY = 'traction-dirty'
 
 export const PALETTE = [
   '#22c55e', '#10b981', '#14b8a6', '#0ea5e9',
@@ -38,11 +40,36 @@ export function defaultSettings(): Settings {
     businessEmail: '',
     businessPhone: '',
     businessAddress: '',
+    favorites: [],
     invoiceCounter: 1,
     currency: '$',
     netDays: 30,
     logoPath: null,
   }
+}
+
+// ---- Favourites ----------------------------------------------------------
+
+/** Stable key for a service+client pairing, for set membership and React keys. */
+export function jobKey(serviceId: string, clientId: string | null): string {
+  return `${serviceId}::${clientId ?? ''}`
+}
+
+export function isFavorite(favorites: Favorite[] | undefined, serviceId: string, clientId: string | null): boolean {
+  const key = jobKey(serviceId, clientId)
+  return (favorites ?? []).some(f => jobKey(f.serviceId, f.clientId) === key)
+}
+
+/** Add or remove a pinned job, returning a new list. */
+export function toggleFavorite(
+  favorites: Favorite[] | undefined,
+  serviceId: string,
+  clientId: string | null,
+): Favorite[] {
+  const list = favorites ?? []
+  const key = jobKey(serviceId, clientId)
+  const without = list.filter(f => jobKey(f.serviceId, f.clientId) !== key)
+  return without.length === list.length ? [...list, { serviceId, clientId }] : without
 }
 
 export function emptyState(): TractionState {
@@ -427,13 +454,17 @@ export function hydrateState(raw: unknown): TractionState {
       dueDate: i.dueDate ?? null,
     }
   })
+  const settings = { ...defaultSettings(), ...(r.settings ?? {}) }
+  // A hand-edited or pre-favourites blob can carry anything here; a non-array
+  // would crash the timer screen on its first render.
+  if (!Array.isArray(settings.favorites)) settings.favorites = []
   return {
     clients,
     services: Array.isArray(r.services) ? r.services : [],
     entries,
     expenses,
     invoices,
-    settings: { ...defaultSettings(), ...(r.settings ?? {}) },
+    settings,
   }
 }
 
@@ -491,7 +522,70 @@ function setRemoteSeen(updatedAt: string) {
   localStorage.setItem(REMOTE_SEEN_KEY, updatedAt)
 }
 
+/**
+ * Does this device hold edits the cloud hasn't accepted yet?
+ *
+ * Kept in localStorage rather than a ref because the case that matters is
+ * surviving a reload: log an hour in a backyard with no signal, the save fails,
+ * you close the tab. Without a persisted flag nothing would retry until you
+ * happened to make another edit, and the cloud would sit stale for days.
+ */
+export function isDirty(): boolean {
+  return localStorage.getItem(DIRTY_KEY) === '1'
+}
+
+export function setDirty(dirty: boolean) {
+  if (dirty) localStorage.setItem(DIRTY_KEY, '1')
+  else localStorage.removeItem(DIRTY_KEY)
+}
+
 export type SaveResult = 'saved' | 'stale' | 'error'
+
+// ---- Merge ---------------------------------------------------------------
+
+/** Union two lists of id-bearing records, letting `winner` decide any overlap. */
+function unionById<T extends { id: string }>(mine: T[], theirs: T[], winner: 'mine' | 'theirs'): T[] {
+  const out = new Map<string, T>()
+  const [first, second] = winner === 'theirs' ? [mine, theirs] : [theirs, mine]
+  for (const item of first) out.set(item.id, item)
+  for (const item of second) out.set(item.id, item)
+  return [...out.values()]
+}
+
+/**
+ * Reconcile this device's state with a cloud copy that moved ahead of it.
+ *
+ * This runs in exactly one situation: we tried to save, the compare-and-swap
+ * said the cloud holds a version we never read, and both copies contain real
+ * work. The old behaviour was to take the cloud copy wholesale, which silently
+ * destroyed anything logged here since the last sync — the phone tracks three
+ * hours in a yard, the laptop edits one invoice, and the phone's afternoon is
+ * gone with no error shown.
+ *
+ * So: union every collection by id. Records only one side knows about are new
+ * work and are always kept; where both sides know an id, the cloud wins, since
+ * it is by definition the newer document.
+ *
+ * The deliberate trade-off is deletions. Without tombstones, an entity deleted
+ * here but still present in the cloud comes back. That is the right way to be
+ * wrong — a resurrected row is visible and takes one tap to delete again, while
+ * silently dropped hours are money you never learn you lost.
+ */
+export function mergeStates(local: TractionState, remote: TractionState): TractionState {
+  return {
+    clients: unionById(local.clients, remote.clients, 'theirs'),
+    services: unionById(local.services, remote.services, 'theirs'),
+    entries: unionById(local.entries, remote.entries, 'theirs'),
+    expenses: unionById(local.expenses, remote.expenses, 'theirs'),
+    invoices: unionById(local.invoices, remote.invoices, 'theirs'),
+    settings: {
+      ...remote.settings,
+      // Never step the counter backwards: both devices may have issued invoices
+      // since they diverged, and a reused number is a real-world billing mess.
+      invoiceCounter: Math.max(local.settings.invoiceCounter, remote.settings.invoiceCounter),
+    },
+  }
+}
 
 /**
  * Save the whole state document to Supabase (one row per user).
