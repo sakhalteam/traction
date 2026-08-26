@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import type { Client, Service, TractionState } from '../types'
-import { formatDuration, formatMoney, liveSeconds, lineAmount } from '../store'
+import {
+  formatDuration, formatMoney, liveSeconds, lineAmount,
+  clientInvoiceCode, compactDate, normalizeInvoiceCode, todayISO, INVOICE_SEQ_PAD,
+} from '../store'
 
 export function ClientsView({
   state, onAdd, onUpdate, onDelete, onGoInvoice,
@@ -63,6 +66,11 @@ export function ClientsView({
                   <>
                     <div className="client-head">
                       <h3>{c.name}</h3>
+                      {/* Only shown when it's been overridden — the default is
+                          just the name, and echoing that back is noise. */}
+                      {c.invoiceCode && (
+                        <span className="dim tiny inv-code-tag" title="Invoice code">{clientInvoiceCode(c)}</span>
+                      )}
                       <button className="icon-btn" title="Edit" onClick={() => setEditingId(c.id)}>✎</button>
                     </div>
                     {(c.email || c.phone) && (
@@ -115,11 +123,27 @@ function ClientEditor({
   }
 
   const overrideCount = Object.keys(c.rates).length
+  // Today's date on purpose: it's what they'd get if they invoiced right now.
+  const numberPreview =
+    `${clientInvoiceCode(c)}-${compactDate(todayISO())}-${'1'.padStart(INVOICE_SEQ_PAD, '0')}`
 
   return (
     <div className="client-editor">
       <label className="field"><span>Name</span>
         <input value={c.name} onChange={e => set({ name: e.target.value })} /></label>
+      <label className="field"><span>Invoice code</span>
+        <input
+          value={c.invoiceCode ?? ''}
+          maxLength={16}
+          placeholder={normalizeInvoiceCode(c.name)}
+          /* Normalised as you type so the field always shows the exact string
+             that will appear on the invoice — no surprise at creation time. */
+          onChange={e => set({ invoiceCode: normalizeInvoiceCode(e.target.value) })}
+        /></label>
+      <p className="hint tiny">
+        Invoice numbers for this client look like <strong>{numberPreview}</strong> — the last
+        pair counts up per day and resets at midnight. Leave blank to use the name.
+      </p>
       <div className="field-row">
         <label className="field"><span>Phone</span>
           <input value={c.phone} onChange={e => set({ phone: e.target.value })} /></label>

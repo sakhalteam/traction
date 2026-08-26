@@ -110,7 +110,10 @@ check('Billed entries were marked invoiced',
   s.entries.filter(e => e.clientId === 'c1').every(e => e.invoiceId === s.invoices[0]?.id))
 check('Other clients were left unbilled',
   s.entries.filter(e => e.clientId === 'c2').every(e => e.invoiceId === null))
-check('Counter advanced', s.settings.invoiceCounter === 2, `got ${s.settings.invoiceCounter}`)
+// Numbering is CODE-YYYYMMDD-NN, derived per client per day — no global counter.
+const todayCompact = iso(Date.now()).replaceAll('-', '')
+check('Invoice number uses the client + date convention',
+  s.invoices[0]?.number === `THESTEINS-${todayCompact}-01`, `got ${s.invoices[0]?.number}`)
 
 // ---- 5. Pin a job from the timer screen ----------------------------------
 await page.locator('.tab', { hasText: 'Timer' }).click()
@@ -137,6 +140,67 @@ s = await readState()
 check('Picker creates a client inline', s.clients.some(c => c.name === 'Vasquez'))
 check('New client is selected',
   (await page.locator('.picker-trigger').nth(1).innerText()).includes('Vasquez'))
+
+// ---- 7. Start and end times are independent (the Toggl rule) -------------
+/** Shift a 'YYYY-MM-DDTHH:mm' input value by whole minutes, staying local. */
+const shiftLocal = (value, minutes) => {
+  const d = new Date(value)
+  d.setMinutes(d.getMinutes() + minutes)
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+await page.locator('.entry-row', { hasText: 'driveway' }).locator('.icon-btn[title="Edit"]').click()
+await page.waitForTimeout(300)
+const editor = page.locator('.entry-editor')
+const startIn = editor.locator('input[type="datetime-local"]').nth(0)
+const endIn = editor.locator('input[type="datetime-local"]').nth(1)
+const start0 = await startIn.inputValue()
+const end0 = await endIn.inputValue()
+
+const start1 = shiftLocal(start0, 15)
+await startIn.fill(start1)
+await page.waitForTimeout(250)
+check('Moving the start leaves the end where it was',
+  (await endIn.inputValue()) === end0, `end was ${end0}, now ${await endIn.inputValue()}`)
+
+const end1 = shiftLocal(end0, 12)
+await endIn.fill(end1)
+await page.waitForTimeout(250)
+check('Moving the end leaves the start where it was',
+  (await startIn.inputValue()) === start1, `start was ${start1}, now ${await startIn.inputValue()}`)
+
+await editor.locator('button', { hasText: 'Save' }).click()
+await page.waitForTimeout(400)
+s = await readState()
+const edited = s.entries.find(e => e.id === 'e2')
+// 5400s, start pushed 15m later (−900s), end pushed 12m later (+720s).
+check('Saved duration reflects both edges', edited?.seconds === 5400 - 900 + 720,
+  `got ${edited?.seconds}`)
+check('Saved start matches what was typed',
+  new Date(edited?.startedAt).getTime() === new Date(start1).getTime())
+
+// ---- 8. A running entry can be re-timed without stopping ----------------
+await page.locator('.again-btn').click()
+await page.waitForTimeout(500)
+await page.locator('.entry-row.live').locator('.icon-btn[title*="Edit"]').click()
+await page.waitForTimeout(300)
+const liveStart = editor.locator('input[type="datetime-local"]').nth(0)
+const liveEnd = editor.locator('input[type="datetime-local"]').nth(1)
+check('A running entry has no end time yet', (await liveEnd.inputValue()) === '')
+const backdated = shiftLocal(await liveStart.inputValue(), -30)
+await liveStart.fill(backdated)
+await page.waitForTimeout(200)
+await editor.locator('button', { hasText: 'Save' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const live = s.entries.find(e => e.runningSince)
+check('Backdating a live timer keeps it running', !!live)
+check('Backdated start re-anchors the running span',
+  live && live.runningSince === live.startedAt
+    && new Date(live.startedAt).getTime() === new Date(backdated).getTime(),
+  `startedAt ${live && new Date(live.startedAt).toISOString()}`)
+check('Live entry still reads as running', await page.locator('.running-card').isVisible())
 
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 

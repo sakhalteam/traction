@@ -338,8 +338,15 @@ textarea { resize: vertical; }
 
 /* ===== Clients ===== */
 .client-card { display: flex; flex-direction: column; gap: 8px; }
-.client-head { display: flex; align-items: flex-start; justify-content: space-between; }
+.client-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .client-head h3 { margin: 0; }
+/* The auto margin (not justify-content) is what keeps this hugging the name
+   while the edit button stays pinned right. */
+.inv-code-tag {
+  margin-right: auto; align-self: center; flex: none;
+  padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px;
+  letter-spacing: 0.05em; white-space: nowrap;
+}
 .client-contact { font-size: 0.85rem; color: var(--text-dim); }
 .client-unbilled { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
 .big-money { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -519,6 +526,12 @@ textarea { resize: vertical; }
 .time-range { align-items: flex-end; }
 .time-range .field { flex: 1 1 200px; }
 .range-arrow { color: var(--text-dim); padding-bottom: 10px; flex: none; }
+
+/* Live duration shown where the Hours/Minutes inputs sit on a stopped entry. */
+.running-inline {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.1rem;
+  color: var(--accent); padding: 9px 0;
+}
 
 .nudge-field { flex: 1 1 260px; display: flex; flex-direction: column; gap: 6px; }
 .nudge-row { display: flex; gap: 6px; }

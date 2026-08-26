@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, lineAmount, todayISO,
-  agingOf, AGING_LABELS, type AgingBucket,
+  agingOf, AGING_LABELS, nextInvoiceNumber, type AgingBucket,
 } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 import { Picker } from './Picker'
@@ -121,6 +121,12 @@ function InvoiceBuilder({
   const nothing = candidates.length === 0 && expCandidates.length === 0
   const nothingPicked = included.length === 0 && includedExp.length === 0
 
+  // The number this invoice would get if created right now. Shown before the
+  // fact so a wrong client code is caught here, not after it's been issued.
+  const previewNumber = clientId
+    ? nextInvoiceNumber(state.invoices, clients.find(c => c.id === clientId), todayISO())
+    : ''
+
   return (
     <div className="panel">
       <h2>New invoice</h2>
@@ -194,6 +200,7 @@ function InvoiceBuilder({
                 <span className="dim">
                   {included.length} entr{included.length === 1 ? 'y' : 'ies'} · {formatDuration(breakdown.totalSeconds)}
                   {includedExp.length > 0 && ` + ${includedExp.length} expense${includedExp.length === 1 ? '' : 's'}`}
+                  {previewNumber && <> · <span className="inv-num">{previewNumber}</span></>}
                 </span>
                 <span className="big-money">{formatMoney(grand, cur)}</span>
               </div>

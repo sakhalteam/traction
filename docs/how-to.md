@@ -34,7 +34,7 @@ traction has **five** things. Get these and everything else clicks.
 | **Service** | A reusable **type of work** with a default hourly rate. **Global** — never owned by a client. | *Deck cleanup* @ $30/hr, *Pressure washing* @ $55/hr |
 | **Time entry** | One chunk of tracked work = `service + client + date + duration + rate + note`. | *Jul 7 · Deck cleanup · Larry & Linda · 3h 47m · $30/hr* |
 | **Expense** | A cost you incurred. **Billable** ones go on a client's invoice; **overhead** (gas, gear) stays off invoices and feeds your profit. | *Jul 7 · Mulch · $120 · billable · Larry & Linda* |
-| **Invoice** | A frozen bundle of a client's unbilled time **and** billable expenses, grouped by day → service. | *INV-0001 · Larry & Linda · $273.50* |
+| **Invoice** | A frozen bundle of a client's unbilled time **and** billable expenses, grouped by day → service. | *LARRYLINDA-20260825-01 · Larry & Linda · $273.50* |
 
 **The one concept that trips people up:** "Is this work tied to a client or not?"
 You don't answer that on the *service* — services are always reusable and global.
@@ -113,7 +113,13 @@ Every entry, grouped by date, newest first — your full history and manual-entr
   date, **hours + minutes**, rate, note. Great for "I did 2 hours at the Stein place
   yesterday."
 - **Filter by client** to see just one person's history.
-- **Edit** (✎) any entry to fix the service, client, date, duration, or rate.
+- **Edit** (✎) any entry to fix the service, client, rate, note, or times. **Start and
+  end are independent** — moving one never drags the other along, it just changes the
+  duration between them. Typing a duration (or using the ±5m/±15m buttons) moves the
+  **end** and leaves the start alone. Nothing can be set in the future.
+- **Editing a running timer:** ✎ works on a live entry too, so you can fix a start you
+  began 20 minutes late without stopping. Its **End** is blank while it runs — leave it
+  blank to keep going, or set a time to stop it right there.
 - **Delete** (✕) an entry you logged by mistake.
 - **Locked entries:** once an entry is on an invoice it shows an **invoiced** tag and
   the edit/delete buttons disappear — see [guarantees](#4-guarantees--behaviors-worth-knowing).
@@ -142,6 +148,9 @@ Track costs the moment you incur them — the mirror image of time entries, on t
 
 - **Add** a client with just a name (e.g. *Larry & Linda*); fill in phone, email,
   address, and notes by editing (✎).
+- **Invoice code:** the prefix on this client's invoice numbers. Defaults to their name
+  with spaces and punctuation stripped, so *Larry & Linda* → `LARRYLINDA-20260825-01`.
+  Set your own when the name is unwieldy — *Seymour Suthersby Smithson* → `SEYSUTH`.
 - **Custom rates for this client:** inside the editor, expand *"Custom rates for this
   client"* to set a per-service rate that overrides the default **for this client only**.
   Example: everyone pays $30/hr for Deck cleanup, but Larry pays $35 — set it here and
@@ -213,8 +222,9 @@ Your analytics dashboard — the Toggl-style view of the business.
 
 ### Settings
 
-- **Business details** — the invoice "from" block + currency symbol + your next
-  invoice number.
+- **Business details** — the invoice "from" block + currency symbol + payment terms.
+  Invoice numbers aren't set here: they're `CODE-YYYYMMDD-NN`, built per client per day
+  (set a client's code under **Clients**).
 - **Data & backup:**
   - **⬇ Time entries (CSV)** — a spreadsheet of every entry (date, client, service,
     hours, rate, amount, invoice). Hand this to your accountant at tax time.
@@ -349,8 +359,15 @@ No. Rates are snapshotted per entry and invoices are frozen. Rate changes only a
 It's on an invoice (look for the *invoiced* tag). Delete that invoice to unlock it.
 
 **Q: I forgot to stop a timer and it ran overnight.**
-Open the entry in Log/Timer and edit the hours/minutes to the real duration. (traction
-also nudges you after 8 hours so this is rare.)
+Open the entry (✎) and set the real **End** time — that stops it there. Or fix the
+hours/minutes if it's already stopped. (traction also nudges you after 8 hours so this
+is rare.)
+
+**Q: How are invoices numbered?**
+`CLIENTCODE-YYYYMMDD-NN` — e.g. Cathy's first invoice on Aug 25 2026 is
+`CATHY-20260825-01`, the second that same day is `-02`, and the first one after midnight
+is `CATHY-20260826-01`. The code comes from the client's **Invoice code** (Clients → ✎),
+defaulting to their name. The builder shows the number before you create it.
 
 **Q: Can I use it on my phone?**
 Yes, and it's built for that — see [Using it on your phone](#8-using-it-on-your-phone).

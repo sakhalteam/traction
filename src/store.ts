@@ -268,6 +268,70 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
   return { days, totalSeconds, total: Math.round(total * 100) / 100 }
 }
 
+// ---- Invoice numbering ---------------------------------------------------
+
+/** Digits the per-day sequence is padded to: 01, 02, … 10. */
+export const INVOICE_SEQ_PAD = 2
+
+const SEQ_ONLY = /^[0-9]+$/
+
+/** Strip a label down to the A–Z0–9 an invoice number can safely carry. */
+export function normalizeInvoiceCode(raw: string): string {
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '')
+}
+
+/**
+ * The invoice-number prefix for a client: their custom code if they have one,
+ * otherwise their name with spaces and punctuation stripped.
+ *
+ * Deliberately NOT a truncation rule ("first five letters"): Stein, Steinson
+ * and Steinmore would all collapse to STEIN and start colliding. Full name by
+ * default, and anyone with an unwieldy one gets a hand-picked code instead.
+ */
+export function clientInvoiceCode(
+  client: Pick<Client, 'name' | 'invoiceCode'> | null | undefined,
+): string {
+  const raw = typeof client?.invoiceCode === 'string' ? client.invoiceCode : ''
+  const custom = normalizeInvoiceCode(raw)
+  if (custom) return custom
+  // A client named only in emoji/punctuation would normalize to nothing.
+  return normalizeInvoiceCode(client?.name ?? '') || 'CLIENT'
+}
+
+/** 'YYYY-MM-DD' → 'YYYYMMDD', the date form invoice numbers use. */
+export function compactDate(iso: string): string {
+  return iso.replace(/-/g, '')
+}
+
+/**
+ * The next invoice number for a client on a given day: `CODE-YYYYMMDD-NN`.
+ *
+ * The sequence is derived by reading the numbers already issued under that
+ * exact prefix rather than from a stored counter. That keeps it self-healing:
+ * deleting today's only invoice frees 01 again, and renaming a client's code
+ * starts a fresh sequence under the new prefix without ever colliding with the
+ * old one. `issuedDate` is the invoice's own date, so a backfilled already-paid
+ * invoice is numbered for the day the work ended, not the day you typed it in.
+ */
+export function nextInvoiceNumber(
+  invoices: Pick<Invoice, 'number'>[],
+  client: Pick<Client, 'name' | 'invoiceCode'> | null | undefined,
+  issuedDate: string,
+): string {
+  const prefix = `${clientInvoiceCode(client)}-${compactDate(issuedDate)}-`
+  let highest = 0
+  for (const inv of invoices) {
+    const num = inv.number ?? ''
+    if (!num.startsWith(prefix)) continue
+    const seq = num.slice(prefix.length)
+    // Ignore anything hand-edited into a non-numeric tail rather than letting
+    // NaN swallow the real highest sequence.
+    if (!SEQ_ONLY.test(seq)) continue
+    highest = Math.max(highest, Number(seq))
+  }
+  return `${prefix}${String(highest + 1).padStart(INVOICE_SEQ_PAD, '0')}`
+}
+
 // ---- Payment state --------------------------------------------------------
 
 /** Where an entry sits in the money pipeline: logged → invoiced → collected. */

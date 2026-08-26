@@ -5,7 +5,7 @@ import {
   emptyState, isEmptyState, loadLocal, saveLocal, touchLocal, saveRemote, loadRemote,
   getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
-  addDays,
+  addDays, nextInvoiceNumber,
 } from './store'
 import type { RemoteState } from './store'
 import type {
@@ -392,7 +392,9 @@ export default function App() {
     const invoice: Invoice = {
       id: crypto.randomUUID(),
       clientId,
-      number: `INV-${String(s.settings.invoiceCounter).padStart(4, '0')}`,
+      // CLIENTCODE-YYYYMMDD-NN, sequenced against the numbers already issued
+      // under that same prefix — see nextInvoiceNumber.
+      number: nextInvoiceNumber(s.invoices, s.clients.find(c => c.id === clientId), issuedDate),
       issuedDate,
       // Freeze the terms in effect today; changing netDays later must not
       // retroactively make already-issued invoices overdue.
@@ -409,9 +411,6 @@ export default function App() {
       invoices: [...prev.invoices, invoice],
       entries: prev.entries.map(e => entryIds.includes(e.id) ? { ...e, invoiceId: invoice.id } : e),
       expenses: prev.expenses.map(x => expenseIds.includes(x.id) ? { ...x, invoiceId: invoice.id } : x),
-      // Step from whatever the counter actually is at apply time, so a number is
-      // never reused even if state moved between building and applying.
-      settings: { ...prev.settings, invoiceCounter: prev.settings.invoiceCounter + 1 },
     }))
     return invoice
   }, [mutate])

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { TimeEntry, TractionState } from '../types'
 import {
-  formatDuration, formatMoney, liveSeconds, lineAmount,
+  formatClock, formatDuration, formatMoney, liveSeconds, lineAmount,
   toLocalInput, fromLocalInput, dateFromEpoch, validateRange, entrySpan, formatTimeOfDay,
   paymentStateOf,
 } from '../store'
+import { useNow } from '../useNow'
 import { JobPhotos } from './JobPhotos'
 import { Picker } from './Picker'
 
@@ -69,6 +70,9 @@ export function EntryRow({
           {span && (
             <span className="entry-span"> · {formatTimeOfDay(span.start)}–{formatTimeOfDay(span.end)}</span>
           )}
+          {isRunning && entry.startedAt != null && (
+            <span className="entry-span"> · {formatTimeOfDay(entry.startedAt)}–now</span>
+          )}
           <span> · {formatMoney(entry.rate, state.settings.currency)}/hr</span>
           {payment === 'paid' && (
             <span className="pay-tag paid" title="On an invoice you've marked paid">paid</span>
@@ -115,8 +119,14 @@ export function EntryRow({
             ▶
           </button>
         )}
-        {!isRunning && !invoiced && (
-          <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>
+        {/* Available while running too: re-timing a live timer (you started it
+            20 minutes late) is exactly when you most want to fix the start. */}
+        {!invoiced && (
+          <button
+            className="icon-btn"
+            title={isRunning ? 'Edit — including the start time' : 'Edit'}
+            onClick={() => setEditing(true)}
+          >✎</button>
         )}
         {!invoiced && !isRunning && (
           <button className="icon-btn danger" title="Delete" onClick={() => onDelete(entry.id)}>✕</button>
@@ -162,40 +172,59 @@ function EntryEditor({
   const [note, setNote] = useState(entry.note)
   const [rate, setRate] = useState(String(entry.rate))
 
-  // Start + duration are the two state vars; the end time is always derived,
-  // so the range and the billed seconds can never drift apart.
-  const [start, setStart] = useState(() => seedStart(entry))
-  const [secs, setSecs] = useState(entry.seconds)
+  const wasRunning = !!entry.runningSince
 
-  const end = start + secs * 1000
-  const [now] = useState(() => Date.now())
+  /**
+   * Start and end are two INDEPENDENT values, exactly like Toggl: moving one
+   * never drags the other along, it only changes the duration between them.
+   *
+   * The old model stored start + duration and derived the end, which meant
+   * pushing the start back 15 minutes silently pushed the end back 15 minutes
+   * too — you could never actually correct one edge of an entry. Duration is
+   * now the derived value, because it's the one nobody types a specific truth
+   * about: "I started at 11:29" is a fact, "it was 5h 12m" is a consequence.
+   */
+  const [start, setStart] = useState(() => seedStart(entry))
+  /** null = no end yet, i.e. still running. Only reachable on a live entry. */
+  const [end, setEnd] = useState<number | null>(
+    () => wasRunning ? null : seedStart(entry) + entry.seconds * 1000,
+  )
+
+  // Ticking, not frozen at open: the future guard and a live entry's duration
+  // both go stale the moment the editor sits open for a minute.
+  const now = useNow(true, wasRunning ? 1000 : 30_000)
+  const stillRunning = wasRunning && end == null
   const maxInput = toLocalInput(now)
-  const problem = validateRange(start, end, now)
+  const secs = Math.max(0, Math.round(((end ?? now) - start) / 1000))
+  const problem = validateRange(start, end ?? Math.max(start, now), now)
   const untimed = entry.startedAt == null
 
   function onStartChange(value: string) {
     const ms = fromLocalInput(value)
     if (ms == null) return
-    setStart(ms) // duration is pinned; the end time follows the start
+    setStart(ms) // the end stays exactly where the user left it
   }
 
   function onEndChange(value: string) {
+    // Clearing the end of a live entry means "never mind, keep it running".
+    if (value === '' && wasRunning) { setEnd(null); return }
     const ms = fromLocalInput(value)
     if (ms == null) return
-    setSecs(Math.round((ms - start) / 1000)) // may go negative → validation catches it
+    setEnd(ms) // the start stays exactly where the user left it
   }
 
+  /** Typing a duration moves the END and pins the start — Toggl's behaviour. */
   function setDuration(h: number, m: number) {
-    setSecs(Math.max(0, h * 3600 + m * 60))
+    setEnd(start + Math.max(0, h * 3600 + m * 60) * 1000)
   }
 
   function nudgeEnd(deltaMin: number) {
-    setSecs(s => Math.max(0, s + deltaMin * 60))
+    setEnd(e => (e ?? now) + deltaMin * 60_000)
   }
 
   function save() {
     if (problem) return
-    onSave({
+    const base = {
       ...entry,
       serviceId,
       clientId: clientId || null,
@@ -203,8 +232,13 @@ function EntryEditor({
       startedAt: start,
       date: dateFromEpoch(start), // billed day always follows the start time
       rate: Number(rate) || 0,
-      seconds: secs,
-    })
+    }
+    onSave(stillRunning
+      // Re-anchor the live span to the new start so the running clock and the
+      // billed seconds keep telling the same story.
+      ? { ...base, seconds: 0, runningSince: start }
+      // Giving a running entry an end time stops it there, as it does on Toggl.
+      : { ...base, seconds: secs, runningSince: null })
   }
 
   return (
@@ -246,40 +280,50 @@ function EntryEditor({
           <span>End</span>
           <input
             type="datetime-local"
-            value={toLocalInput(end)}
+            value={end == null ? '' : toLocalInput(end)}
             max={maxInput}
+            placeholder="running"
             onChange={e => onEndChange(e.target.value)}
           />
         </label>
       </div>
 
-      <div className="field-row">
-        <label className="field narrow-field">
-          <span>Hours</span>
-          <input
-            type="number" min="0"
-            value={Math.floor(Math.max(0, secs) / 3600)}
-            onChange={e => setDuration(Number(e.target.value) || 0, Math.floor((Math.max(0, secs) % 3600) / 60))}
-          />
-        </label>
-        <label className="field narrow-field">
-          <span>Minutes</span>
-          <input
-            type="number" min="0" max="59"
-            value={Math.floor((Math.max(0, secs) % 3600) / 60)}
-            onChange={e => setDuration(Math.floor(Math.max(0, secs) / 3600), Number(e.target.value) || 0)}
-          />
-        </label>
-        <div className="field nudge-field">
-          <span>Adjust end</span>
-          <div className="nudge-row">
-            <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(-15)}>−15m</button>
-            <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(-5)}>−5m</button>
-            <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(5)}>+5m</button>
-            <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(15)}>+15m</button>
+      {stillRunning ? (
+        <div className="field-row">
+          <div className="field">
+            <span>Running</span>
+            <div className="running-inline">{formatClock(secs)}</div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="field-row">
+          <label className="field narrow-field">
+            <span>Hours</span>
+            <input
+              type="number" min="0"
+              value={Math.floor(secs / 3600)}
+              onChange={e => setDuration(Number(e.target.value) || 0, Math.floor((secs % 3600) / 60))}
+            />
+          </label>
+          <label className="field narrow-field">
+            <span>Minutes</span>
+            <input
+              type="number" min="0" max="59"
+              value={Math.floor((secs % 3600) / 60)}
+              onChange={e => setDuration(Math.floor(secs / 3600), Number(e.target.value) || 0)}
+            />
+          </label>
+          <div className="field nudge-field">
+            <span>Adjust end</span>
+            <div className="nudge-row">
+              <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(-15)}>−15m</button>
+              <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(-5)}>−5m</button>
+              <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(5)}>+5m</button>
+              <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(15)}>+15m</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="field-row">
         <label className="field">
@@ -288,6 +332,13 @@ function EntryEditor({
         </label>
       </div>
 
+      {wasRunning && !problem && (
+        <p className="hint tiny">
+          {stillRunning
+            ? 'Still running — leave End blank to keep it going. Setting an end time stops it there.'
+            : `This will stop the timer at ${toLocalInput(end!).slice(11)}.`}
+        </p>
+      )}
       {untimed && !problem && (
         <p className="hint tiny">
           This entry predates clock times — start was seeded at {LEGACY_SEED_HOUR}:00 on {entry.date}.

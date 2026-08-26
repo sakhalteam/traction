@@ -11,6 +11,12 @@ export interface Client {
   /** Optional per-service rate overrides, keyed by serviceId. Falls back to the
    *  service's default rate when a service isn't listed here. */
   rates: Record<string, number>
+  /**
+   * Short code used as this client's invoice-number prefix, e.g. "SEYSUTH" for
+   * Seymour Suthersby Smithson. Blank/absent falls back to the full name with
+   * spaces and punctuation stripped — see `clientInvoiceCode`.
+   */
+  invoiceCode?: string
   archived: boolean
   createdAt: number
 }
@@ -173,7 +179,12 @@ export interface Settings {
    * the list by Thursday. Absent on states saved before favourites existed.
    */
   favorites?: Favorite[]
-  /** Monotonic counter for auto invoice numbers. */
+  /**
+   * LEGACY. Invoice numbers are now `CODE-YYYYMMDD-NN`, derived per client and
+   * per day from the numbers already issued (see `nextInvoiceNumber`), so
+   * nothing reads this any more. Kept on the type so old saved states and the
+   * sync merge keep hydrating without a migration.
+   */
   invoiceCounter: number
   /** Currency symbol prefix, e.g. "$". */
   currency: string
