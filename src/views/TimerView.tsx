@@ -76,6 +76,13 @@ export function TimerView({
   const [filterPayment, setFilterPayment] = useState<PaymentState | ''>('')
   const [adding, setAdding] = useState(false)
   const [allNudges, setAllNudges] = useState(false)
+  /** Which nudge rows are opened up to show the work behind the number. */
+  const [openNudges, setOpenNudges] = useState<Set<string>>(new Set())
+  const toggleNudge = (id: string) => setOpenNudges(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
 
   const selectedService = services.find(s => s.id === serviceId)
   const selectedClient = clientId ? (clients.find(c => c.id === clientId) ?? null) : null
@@ -121,19 +128,24 @@ export function TimerView({
    */
   const readyToInvoice = useMemo(() => {
     const today = todayISO()
-    const byClient = new Map<string, { amount: number; count: number; oldest: string }>()
+    const byClient = new Map<string, { amount: number; oldest: string; entries: TimeEntry[] }>()
     for (const e of state.entries) {
       // Rate 0 is archived/unrated work — there's nothing to bill for it.
       if (!e.clientId || e.invoiceId || e.runningSince || e.rate === 0) continue
-      const cur = byClient.get(e.clientId) ?? { amount: 0, count: 0, oldest: e.date }
+      const cur = byClient.get(e.clientId) ?? { amount: 0, oldest: e.date, entries: [] }
       cur.amount += lineAmount(e.seconds, e.rate)
-      cur.count += 1
+      cur.entries.push(e)
       if (e.date < cur.oldest) cur.oldest = e.date
       byClient.set(e.clientId, cur)
     }
     return [...byClient.entries()]
       .map(([id, v]) => ({
-        id, ...v,
+        id,
+        amount: v.amount,
+        oldest: v.oldest,
+        count: v.entries.length,
+        // Newest first, matching the time log below it.
+        entries: [...v.entries].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
         name: clientFullName(state.clients.find(c => c.id === id)),
         age: daysBetween(v.oldest, today),
       }))
@@ -374,20 +386,54 @@ export function TimerView({
             <span className="dim tiny">unbilled for {NUDGE_AFTER_DAYS}+ days</span>
           </div>
           <ul className="nudge-list">
-            {shownNudges.map(c => (
-              <li key={c.id} className="nudge-row">
-                <div className="nudge-who">
-                  <strong>{c.name}</strong>
-                  {/* Year dropped on purpose — it always reads as the current
-                      one here, and the full date wrapped to two lines on a phone. */}
-                  <span className="dim tiny">
-                    {c.count} entr{c.count === 1 ? 'y' : 'ies'} · oldest {formatDate(c.oldest).replace(/,.*$/, '')} · {c.age}d
-                  </span>
-                </div>
-                <span className="nudge-amt">{formatMoney(c.amount, state.settings.currency)}</span>
-                <button className="btn nudge-go" onClick={() => onGoInvoice(c.id)}>Invoice →</button>
-              </li>
-            ))}
+            {shownNudges.map(c => {
+              const open = openNudges.has(c.id)
+              return (
+                <li key={c.id} className={`nudge-item ${open ? 'open' : ''}`}>
+                  <div className="nudge-row">
+                    {/* Opening the row is the point: before committing to an
+                        invoice you want to see the hours it is made of, without
+                        leaving the screen for the builder. */}
+                    <button
+                      className="nudge-who"
+                      onClick={() => toggleNudge(c.id)}
+                      aria-expanded={open}
+                      title={open ? 'Hide these hours' : 'Show the hours behind this'}
+                    >
+                      <strong>
+                        <span className="nudge-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+                        {c.name}
+                      </strong>
+                      {/* Year dropped on purpose — it always reads as the current
+                          one here, and the full date wrapped to two lines on a phone. */}
+                      <span className="dim tiny">
+                        {c.count} entr{c.count === 1 ? 'y' : 'ies'} · oldest {formatDate(c.oldest).replace(/,.*$/, '')} · {c.age}d
+                      </span>
+                    </button>
+                    <span className="nudge-amt">{formatMoney(c.amount, state.settings.currency)}</span>
+                    <button className="btn nudge-go" onClick={() => onGoInvoice(c.id)}>Invoice →</button>
+                  </div>
+                  {open && (
+                    <ul className="nudge-entries">
+                      {c.entries.map(e => (
+                        <li key={e.id}>
+                          <span className="ne-date">{formatDate(e.date).replace(/,.*$/, '')}</span>
+                          <span className="chip-dot" style={{
+                            background: state.services.find(s => s.id === e.serviceId)?.color ?? '#64748b',
+                          }} />
+                          <span className="ne-svc">
+                            {state.services.find(s => s.id === e.serviceId)?.name ?? 'Unknown'}
+                            {e.note && <span className="dim"> · {e.note}</span>}
+                          </span>
+                          <span className="ne-dur">{formatDuration(e.seconds, durationStyle)}</span>
+                          <span className="ne-amt">{formatMoney(lineAmount(e.seconds, e.rate), state.settings.currency)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              )
+            })}
           </ul>
           {readyToInvoice.length > NUDGE_PREVIEW && (
             <button className="btn ghost nudge-more" onClick={() => setAllNudges(v => !v)}>

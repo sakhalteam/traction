@@ -100,6 +100,9 @@ Your home base for tracking live work.
 - **Today list:** everything logged today, with live totals (time + $) at the top.
 - **Ready to invoice** sits below the timer: any client with unbilled work older
   than three days, already totalled, with a button straight to their invoice.
+  **Tap a client's name to open the row** and see every entry behind that number —
+  date, service, note, hours and amount — then tap again to close it. Same scrutiny
+  the invoice builder gives you, without leaving the timer.
 
 > 💡 **A running timer follows you.** Switch to Invoices or Expenses and a slim green
 > bar stays pinned to the bottom of the screen with the live clock, the running
@@ -182,6 +185,9 @@ Track costs the moment you incur them — the mirror image of time entries, on t
   Example: everyone pays $30/hr for Deck cleanup, but Larry pays $35 — set it here and
   every new Larry + Deck-cleanup entry auto-uses $35. (Blank = use the service default.
   Overrides apply to **new** entries only.)
+- **What you do for them:** each card lists the services you've actually logged for
+  that client, biggest first, with hours. Derived from the time log, so it's never a
+  list you have to keep up to date.
 - Each client card shows their **unbilled** balance (money you've tracked but not yet
   invoiced) and a **Create invoice →** shortcut.
 - **Deleting a client keeps their time entries** — those entries just become "General"

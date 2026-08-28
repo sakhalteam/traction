@@ -53,6 +53,13 @@ const state = {
       date: iso(now - 6 * DAY), startedAt: now - 6 * DAY, seconds: 1800, runningSince: null,
       rate: 0, invoiceId: null, photoPaths: [], createdAt: now - 6 * DAY,
     },
+    // Old, unbilled and rated, so it earns a "Ready to invoice" row. Reuses an
+    // existing service+client pairing so it can't disturb the Again grid.
+    {
+      id: 'e6', clientId: 'c2', serviceId: 's2', note: 'gutters',
+      date: iso(now - 10 * DAY), startedAt: now - 10 * DAY, seconds: 7200, runningSince: null,
+      rate: 85, invoiceId: null, photoPaths: [], createdAt: now - 10 * DAY,
+    },
   ],
   expenses: [],
   invoices: [],
@@ -361,6 +368,29 @@ s = await readState()
 const biz = s.clients.find(c => c.business === 'FARTTOWN PIZZAS')
 check('A business with no person is a valid client', !!biz && biz.name === 'FARTTOWN PIZZAS',
   JSON.stringify({ name: biz?.name, business: biz?.business }))
+
+// ---- 14. Ready-to-invoice rows open up ---------------------------------
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(600)
+// e5 is 6 days old and unbilled, so it earns a nudge row.
+check('A nudge row starts collapsed', await page.locator('.nudge-entries').count() === 0)
+await page.locator('.nudge-who').first().click()
+await page.waitForTimeout(400)
+check('Clicking a nudge shows the hours behind it',
+  await page.locator('.nudge-entries li').count() > 0,
+  `${await page.locator('.nudge-entries li').count()} rows`)
+await page.locator('.nudge-who').first().click()
+await page.waitForTimeout(400)
+check('Clicking it again collapses it', await page.locator('.nudge-entries').count() === 0)
+
+// ---- 15. The adjust-end buttons are one row, not a 2x2 -----------------
+// .nudge-row used to be shared with the invoice nudge, whose grid stacked them.
+await page.locator('.entry-row .icon-btn[title="Edit"]').first().click()
+await page.waitForTimeout(400)
+const btnRow = await page.locator('.nudge-btns').boundingBox()
+const oneBtn = await page.locator('.nudge-btns .btn').first().boundingBox()
+check('Adjust-end stays on a single row', btnRow.height < oneBtn.height * 1.6,
+  `row ${Math.round(btnRow.height)}px vs button ${Math.round(oneBtn.height)}px`)
 
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 

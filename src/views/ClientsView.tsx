@@ -32,6 +32,31 @@ export function ClientsView({
     return { seconds, amount, count: entries.length }
   }
 
+  /**
+   * What you've actually done for someone, all-time and biggest first.
+   *
+   * Deliberately derived from their entries rather than from a list you'd have
+   * to maintain: the useful question standing on a doorstep is "what do I
+   * normally do here", and only the log knows that.
+   */
+  function servicesFor(clientId: string) {
+    const totals = new Map<string, { seconds: number; amount: number }>()
+    for (const e of state.entries) {
+      if (e.clientId !== clientId) continue
+      const cur = totals.get(e.serviceId) ?? { seconds: 0, amount: 0 }
+      cur.seconds += liveSeconds(e)
+      cur.amount += lineAmount(liveSeconds(e), e.rate)
+      totals.set(e.serviceId, cur)
+    }
+    return [...totals.entries()]
+      .map(([id, v]) => ({
+        id, ...v,
+        name: state.services.find(s => s.id === id)?.name ?? 'Unknown',
+        color: state.services.find(s => s.id === id)?.color ?? '#64748b',
+      }))
+      .sort((a, b) => b.seconds - a.seconds)
+  }
+
   function add() {
     if (!name.trim()) return
     onAdd(name.trim())
@@ -56,6 +81,7 @@ export function ClientsView({
         <div className="card-grid">
           {clients.map(c => {
             const u = unbilled(c.id)
+            const work = servicesFor(c.id)
             const isEditing = editingId === c.id
             return (
               <div key={c.id} className="panel client-card">
@@ -80,11 +106,12 @@ export function ClientsView({
                     </div>
                     <div className="client-codeline">
                       <span className="inv-code-tag" title="Invoice-number prefix">{clientInvoiceCode(c)}</span>
-                      {clientShortName(c) !== clientFullName(c) && (
-                        <span className="dim tiny" title="How this client reads on pills and chips">
-                          shows as “{clientShortName(c)}”
-                        </span>
-                      )}
+                      {/* Always shown, not only when it differs: the list is
+                          ordered by this, so having it on every card is what
+                          makes the alphabetical run visible going down. */}
+                      <span className="dim tiny" title="Sorted on this; also what pills and chips show">
+                        {clientShortName(c)}
+                      </span>
                     </div>
                     {(c.email || c.phone) && (
                       <div className="client-contact">{[c.phone, c.email].filter(Boolean).join(' · ')}</div>
@@ -97,6 +124,17 @@ export function ClientsView({
                       </div>
                       <div className="dim">{u.count} entr{u.count === 1 ? 'y' : 'ies'} · {formatDuration(u.seconds, durationStyle)}</div>
                     </div>
+                    {work.length > 0 && (
+                      <div className="client-services">
+                        {work.map(w => (
+                          <span key={w.id} className="svc-chip" title={formatMoney(w.amount, state.settings.currency)}>
+                            <span className="chip-dot" style={{ background: w.color }} />
+                            {w.name}
+                            <span className="dim"> {formatDuration(w.seconds, durationStyle)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {u.count > 0 && (
                       <button className="btn" onClick={() => onGoInvoice(c.id)}>Create invoice →</button>
                     )}

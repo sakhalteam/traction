@@ -87,14 +87,67 @@ NAMES: dict[str, list[tuple[str, str]]] = {
 }
 
 # Stored invoice codes to CLEAR, so the app's derived initials+surname rule
-# takes over. Codes Nic deliberately chose stay put (SYLVGARD, CATHY, PATCROSS,
-# LLGIES); these four were verbose leftovers from before the rule existed.
+# takes over. SYLVGARD, PATCROSS and LLGIES are Nic's own and stay put.
 CLEAR_CODES = {
     "Diana Baskins",                  # DIANABASKINS -> DBASKINS
     "Stein",                          # STEINLOUMAI  -> MLSTEIN
     "MacArthur, Grayson and Colleen",  # MACARTHUR    -> GCMACARTHUR
-    "Schurr, Marlene and Lorraine",   # SCHURRMARLOR -> MLSCHURR
+    "Schurr, Marlene and Lorraine",   # SCHURRMARLOR -> MJSCHURR (Jeanette, not Lorraine)
+    "Cathy Tanner",                   # CATHY        -> CTANNER
 }
+
+# Contact details and corrections Nic supplied after the first merge pass.
+# Applied by traction client name; `people` here overrides NAMES.
+DETAILS: dict[str, dict] = {
+    "Schurr, Marlene and Lorraine": {
+        # Lorraine was their mother, and was only on the property paperwork.
+        "people": [("Marlene", "Schurr"), ("Jeanette", "Schurr")],
+        "address": "19710 9th Dr SE, Bothell, WA 98012",
+    },
+    "John": {
+        "people": [("John", "Welk")],
+        "address": "19704 9th Dr SE, Bothell, WA 98012",
+    },
+    "Gallagher": {
+        "people": [("Leanne", "Gallagher")],
+        "address": "115 Crandell Ln, Wenatchee, WA 98801",
+    },
+}
+
+# Client -> date through which everything is settled, regardless of Toggl's
+# tagging. Nic tagged #paid by hand and missed some, so the tag understates
+# what was actually collected. Entries on or BEFORE this date count as paid.
+PAID_THROUGH = {
+    "Gies, Larry and Linda": "2026-07-27",  # paid up until (not including) Jul 28
+}
+
+# Every client whose rate is a flat number across the board. Written as one
+# figure rather than a per-service table because that is how these are actually
+# quoted, and it keeps the new services below from silently falling back to a
+# default that was never agreed.
+FLAT_RATE = {
+    "Diana Baskins": 43,
+    "Gardner, Sylvia and Craig": 75,
+    "Schurr, Marlene and Lorraine": 50,
+    "John": 30,
+}
+
+# Services Nic offers that traction didn't know about yet. The Toggl export
+# carries no service detail of its own -- its Project column holds client names
+# ("GIES", "Cathy", "marlene"), and the only work word anywhere in it is
+# "pressurewashing", which is already a service. So this list is Nic's, not
+# something recovered from the data.
+NEW_SERVICES = [
+    ("Deadheading", "#84cc16"), ("Cleanup", "#10b981"), ("Pruning", "#14b8a6"),
+    ("Gutter Cleaning", "#6366f1"), ("Path Creation", "#8b5cf6"),
+    ("Landscaping", "#22c55e"), ("Potting", "#ec4899"), ("Planting", "#f43f5e"),
+    ("Dump Run", "#64748b"), ("Fence Staining", "#f97316"), ("Repair", "#eab308"),
+    ("Irrigation", "#0ea5e9"), ("Painting", "#a78bfa"), ("Chores/Errands", "#94a3b8"),
+]
+
+# Default $/hr for those new services: Nic's standard gardening rate, which the
+# three existing $30 services already use. Per-client rates still win.
+NEW_SERVICE_RATE = 30
 
 # Historical rates that differ from what traction would resolve today. The
 # MacArthur jobs are June 2026, priced before Pressure Washing moved to $75;
@@ -256,15 +309,32 @@ def main() -> None:
     svc_by_name = {s["name"]: s for s in services}
     invoiced = {eid for inv in state.get("invoices", []) for eid in inv.get("entryIds", [])}
 
-    # --- 1. Every client onto the structured name scheme ------------------
+    # --- 1. Services: add the ones Nic offers that traction lacks ---------
+    have = {s["name"] for s in services}
+    for name, color in NEW_SERVICES:
+        if name in have:
+            continue
+        services.append({"id": gen_id(), "name": name, "defaultRate": NEW_SERVICE_RATE,
+                         "color": color, "archived": False, "createdAt": now_ms})
+    svc_by_name = {s["name"]: s for s in services}
+
+    # --- 2. Every client onto the structured name scheme ------------------
     for c in clients:
-        people = NAMES.get(c["name"]) or parse_people(c["name"])
+        detail = DETAILS.get(c["name"], {})
+        people = detail.get("people") or NAMES.get(c["name"]) or parse_people(c["name"])
         c["people"] = [{"first": f, "last": l} for f, l in people]
         c.setdefault("business", "")
+        if detail.get("address"):
+            c["address"] = detail["address"]
         if c["name"] in CLEAR_CODES:
             c.pop("invoiceCode", None)
+        # A flat-rate client keeps that rate on EVERY service, including the
+        # ones just added -- otherwise their next job silently bills at the
+        # service default instead of what was agreed.
+        if c["name"] in FLAT_RATE:
+            c["rates"] = {s["id"]: FLAT_RATE[c["name"]] for s in services}
 
-    # --- 2. Toggl rows -> candidate entries, bucketed by client-day -------
+    # --- 3. Toggl rows -> candidate entries, bucketed by client-day -------
     unmapped: list[tuple] = []
     toggl_days: dict[tuple[str, str], list[dict]] = defaultdict(list)
 
@@ -279,12 +349,16 @@ def main() -> None:
             continue
 
         if cname not in by_name:  # a client Toggl knows and traction doesn't
+            detail = DETAILS.get(cname, {})
+            people = detail.get("people") or NAMES.get(cname) or parse_people(cname)
             fresh = {
-                "id": gen_id(), "name": cname, "email": "", "phone": "", "address": "",
-                "notes": "", "rates": {}, "archived": False, "createdAt": now_ms,
+                "id": gen_id(), "name": cname, "email": "", "phone": "",
+                "address": detail.get("address", ""),
+                "notes": "", "archived": False, "createdAt": now_ms,
                 "colorId": NEW_CLIENT_COLOR, "business": "",
-                "people": [{"first": f, "last": l}
-                           for f, l in (NAMES.get(cname) or parse_people(cname))],
+                "people": [{"first": f, "last": l} for f, l in people],
+                "rates": ({s["id"]: FLAT_RATE[cname] for s in services}
+                          if cname in FLAT_RATE else {}),
             }
             clients.append(fresh)
             by_name[cname] = fresh
@@ -304,7 +378,7 @@ def main() -> None:
             "_paid": "paid" in (r["Tags"] or "").lower(),
         })
 
-    # --- 3. Reconcile, day by day ----------------------------------------
+    # --- 4. Reconcile, day by day ----------------------------------------
     name_of = {c["id"]: c["name"] for c in clients}
     kept, replaced, added, blocked = [], [], [], []
 
@@ -329,14 +403,20 @@ def main() -> None:
         merged.extend(entries)
         added.append((key, entries))
 
-    # --- 4. Backfill closed invoices for work Toggl says was already paid --
+    # --- 5. Backfill closed invoices for work already settled -------------
     # Without this, 217h of collected work reads as money still owed and the
     # Ready-to-invoice nudge names every client. One invoice per client per
     # year, closed and paid, which also stamps invoiceId so those hours can
     # never be billed a second time. Untagged hours stay unbilled on purpose.
     buckets: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for e in merged:
-        if e.pop("_paid", False):
+        tagged = e.pop("_paid", False)
+        # PAID_THROUGH catches what the hand-applied #paid tag missed, and
+        # applies to traction's own entries too, not just imported ones.
+        through = PAID_THROUGH.get(name_of.get(e["clientId"], ""))
+        if e.get("invoiceId"):
+            continue
+        if tagged or (through and e["date"] <= through):
             buckets[(e["clientId"], e["date"][:4])].append(e)
 
     service_names = {s["id"]: s["name"] for s in services}
@@ -371,7 +451,7 @@ def main() -> None:
     paid_seconds = sum(e["seconds"] for b in buckets.values() for e in b)
     state["entries"] = sorted(merged, key=lambda e: (e["date"], e.get("startedAt") or 0))
 
-    # --- 4. Report --------------------------------------------------------
+    # --- 6. Report --------------------------------------------------------
     def label(key: tuple[str, str]) -> str:
         return name_of.get(key[0], "?") + "  " + key[1]
 

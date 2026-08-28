@@ -252,9 +252,37 @@ textarea { resize: vertical; }
 .nudge-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 9px 12px; border-radius: var(--radius-sm);
-  background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border);
 }
-.nudge-who { display: flex; flex-direction: column; min-width: 0; }
+/* A button, not a div: opening the row is a real action and deserves a real
+   control, but it has to keep reading as the row's label rather than a button. */
+.nudge-who {
+  display: flex; flex-direction: column; min-width: 0; gap: 2px;
+  background: none; border: none; padding: 0; margin: 0;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.nudge-who strong { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.nudge-caret { color: var(--text-dim); font-size: 0.8rem; flex: none; }
+.nudge-item {
+  border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--border);
+}
+.nudge-item.open { border-color: rgba(56, 189, 248, 0.45); }
+/* The row keeps its own padding; the item now owns the frame, so an opened
+   list can sit flush inside the same card rather than floating beside it. */
+.nudge-item > .nudge-row { background: none; border: none; }
+
+.nudge-entries {
+  list-style: none; margin: 0; padding: 2px 12px 10px; display: flex;
+  flex-direction: column; gap: 2px; border-top: 1px solid var(--border);
+}
+.nudge-entries li {
+  display: grid; grid-template-columns: auto 9px 1fr auto auto; gap: 8px;
+  align-items: center; padding: 5px 0; font-size: 0.84rem;
+}
+.ne-date { color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ne-svc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ne-dur { color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ne-amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
 .nudge-amt { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.05rem; color: var(--sky); }
 .nudge-row .btn { width: auto; }
 
@@ -364,6 +392,13 @@ textarea { resize: vertical; }
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .client-codeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: -2px; }
+/* What you actually do for this client, biggest job first. */
+.client-services { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.svc-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 0.78rem;
+  background: rgba(148, 163, 184, 0.12); border: 1px solid var(--border);
+}
 .client-codeline .inv-code-tag { margin-right: 0; font-size: 0.72rem; }
 /* The auto margin (not justify-content) is what keeps this hugging the name
    while the edit button stays pinned right. */
@@ -589,8 +624,10 @@ textarea { resize: vertical; }
 }
 
 .nudge-field { flex: 1 1 260px; display: flex; flex-direction: column; gap: 6px; }
-.nudge-row { display: flex; gap: 6px; }
-.nudge-row .btn { flex: 1; }
+/* Deliberately NOT .nudge-row: that class belongs to the ready-to-invoice
+   panel, whose grid was landing these four buttons in a 2x2 block. */
+.nudge-btns { display: flex; gap: 6px; }
+.nudge-btns .btn { flex: 1; }
 .btn.tiny { padding: 8px 6px; font-size: 0.78rem; }
 
 /* Wall-clock span on a collapsed entry row */
@@ -1049,6 +1086,7 @@ textarea { resize: vertical; }
 
   .nudge-row { gap: 8px; }
   .nudge-row .btn { width: 100%; }
+  .nudge-btns .btn { width: auto; }
   .nudge-amt { font-size: 1rem; }
 
   .running-clock { font-size: 2.1rem; }

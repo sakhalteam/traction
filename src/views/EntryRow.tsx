@@ -308,7 +308,7 @@ function EntryEditor({
           />
           <div className="field nudge-field">
             <span>Adjust end</span>
-            <div className="nudge-row">
+            <div className="nudge-btns">
               <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(-15)}>−15m</button>
               <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(-5)}>−5m</button>
               <button type="button" className="btn ghost tiny" onClick={() => nudgeEnd(5)}>+5m</button>
