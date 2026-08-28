@@ -31,6 +31,7 @@ import argparse
 import csv
 import datetime
 import json
+import os
 import random
 import re
 import string
@@ -96,23 +97,35 @@ CLEAR_CODES = {
     "Cathy Tanner",                   # CATHY        -> CTANNER
 }
 
-# Contact details and corrections Nic supplied after the first merge pass.
-# Applied by traction client name; `people` here overrides NAMES.
+# Name corrections applied by traction client name; `people` overrides NAMES.
 DETAILS: dict[str, dict] = {
     "Schurr, Marlene and Lorraine": {
         # Lorraine was their mother, and was only on the property paperwork.
         "people": [("Marlene", "Schurr"), ("Jeanette", "Schurr")],
-        "address": "19710 9th Dr SE, Bothell, WA 98012",
     },
-    "John": {
-        "people": [("John", "Welk")],
-        "address": "19704 9th Dr SE, Bothell, WA 98012",
-    },
-    "Gallagher": {
-        "people": [("Leanne", "Gallagher")],
-        "address": "115 Crandell Ln, Wenatchee, WA 98801",
-    },
+    "John": {"people": [("John", "Welk")]},
+    "Gallagher": {"people": [("Leanne", "Gallagher")]},
 }
+
+# Street addresses live OUTSIDE this file. The repo is public, and a client's
+# home address is a third party's data that they never agreed to publish --
+# once it is in git history it is permanent, indexable and forkable. Drop them
+# in scripts/merge-details.local.json (gitignored) as:
+#
+#     { "<traction client name>": { "address": "...", "email": "...", ... } }
+#
+# Anything in there is merged over DETAILS. Missing file = names only, which
+# still produces a correct merge; addresses just have to be typed in the app.
+LOCAL_DETAILS = "merge-details.local.json"
+
+
+def load_local_details(script_dir: str) -> dict[str, dict]:
+    path = os.path.join(script_dir, LOCAL_DETAILS)
+    if not os.path.exists(path):
+        print("note: no " + LOCAL_DETAILS + " -- names only, no addresses")
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
 
 # Client -> date through which everything is settled, regardless of Toggl's
 # tagging. Nic tagged #paid by hand and missed some, so the tag understates
@@ -298,6 +311,10 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="report only, write nothing")
     args = ap.parse_args()
 
+    local = load_local_details(os.path.dirname(os.path.abspath(__file__)))
+    for cname, extra in local.items():
+        DETAILS.setdefault(cname, {}).update(extra)
+
     with open(args.backup, encoding="utf-8") as fh:
         doc = json.load(fh)
     state = doc.get("state", doc)
@@ -324,8 +341,9 @@ def main() -> None:
         people = detail.get("people") or NAMES.get(c["name"]) or parse_people(c["name"])
         c["people"] = [{"first": f, "last": l} for f, l in people]
         c.setdefault("business", "")
-        if detail.get("address"):
-            c["address"] = detail["address"]
+        for field in ("address", "email", "phone", "notes"):
+            if detail.get(field):
+                c[field] = detail[field]
         if c["name"] in CLEAR_CODES:
             c.pop("invoiceCode", None)
         # A flat-rate client keeps that rate on EVERY service, including the
@@ -352,9 +370,10 @@ def main() -> None:
             detail = DETAILS.get(cname, {})
             people = detail.get("people") or NAMES.get(cname) or parse_people(cname)
             fresh = {
-                "id": gen_id(), "name": cname, "email": "", "phone": "",
-                "address": detail.get("address", ""),
-                "notes": "", "archived": False, "createdAt": now_ms,
+                "id": gen_id(), "name": cname,
+                "email": detail.get("email", ""), "phone": detail.get("phone", ""),
+                "address": detail.get("address", ""), "notes": detail.get("notes", ""),
+                "archived": False, "createdAt": now_ms,
                 "colorId": NEW_CLIENT_COLOR, "business": "",
                 "people": [{"first": f, "last": l} for f, l in people],
                 "rates": ({s["id"]: FLAT_RATE[cname] for s in services}
