@@ -130,7 +130,7 @@ check('Other clients were left unbilled',
 // Numbering is CODE-YYYYMMDD-NN, derived per client per day — no global counter.
 const todayCompact = iso(Date.now()).replaceAll('-', '')
 check('Invoice number uses the client + date convention',
-  s.invoices[0]?.number === `THESTEINS-${todayCompact}-01`, `got ${s.invoices[0]?.number}`)
+  s.invoices[0]?.number === `TSTEINS-${todayCompact}-01`, `got ${s.invoices[0]?.number}`)
 
 // ---- 5. Pin a job from the timer screen ----------------------------------
 await page.locator('.tab', { hasText: 'Timer' }).click()
@@ -332,8 +332,9 @@ check('A shared surname collapses on the card',
   await page.locator('.client-card', { hasText: 'Gardner' }).locator('.client-name-pill').innerText())
 check('The legacy name field mirrors the derived full name',
   couple?.name === 'Sylvia & Craig Gardner', `got ${couple?.name}`)
-check('The card shows the invoice code',
-  (await page.locator('.client-card', { hasText: 'Gardner' }).locator('.inv-code-tag').innerText()) === 'GARDNER',
+// Initials + surname: Sylvia and Craig Gardner are SCGARDNER, not GARDNER.
+check('The card shows the derived invoice code',
+  (await page.locator('.client-card', { hasText: 'Gardner' }).locator('.inv-code-tag').innerText()) === 'SCGARDNER',
   await page.locator('.client-card', { hasText: 'Gardner' }).locator('.inv-code-tag').innerText())
 
 await page.locator('.tab', { hasText: 'Timer' }).click()

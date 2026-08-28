@@ -388,7 +388,7 @@ export function hasStructuredName(
  * token of each chunk as a surname.
  */
 export function splitLegacyName(name: string): Person[] {
-  const chunks = name.trim().split(/\s+(?:&|and)\s+/i).map(c => c.trim()).filter(Boolean)
+  const chunks = name.trim().split(/\s+(?:&|\+|and)\s+/i).map(c => c.trim()).filter(Boolean)
   if (chunks.length === 0) return [{ first: '', last: '' }]
   return chunks.map(chunk => {
     const tokens = chunk.split(/\s+/)
@@ -468,15 +468,47 @@ export function normalizeInvoiceCode(raw: string): string {
  * and Steinmore would all collapse to STEIN and start colliding. Full name by
  * default, and anyone with an unwieldy one gets a hand-picked code instead.
  */
+/**
+ * The invoice-number prefix for a client.
+ *
+ * A code you typed yourself is never touched. Everyone else gets one built from
+ * their name: every person's first initial, then the surname in full — Larry
+ * and Linda Gies are LLGIES, Diana Baskins is DBASKINS, Grayson and Catherine
+ * MacArthur are GCMACARTHUR. Initials rather than full first names because the
+ * prefix is read next to a date and a sequence, where SYLVIACRAIGGARDNER stops
+ * being scannable.
+ *
+ * Nothing is ever written back to the client: the derived code follows a
+ * rename, and the stored field means "Nic chose this" and nothing else.
+ */
 export function clientInvoiceCode(
   client: (NamedClient & Pick<Client, 'invoiceCode'>) | null | undefined,
 ): string {
   const raw = typeof client?.invoiceCode === 'string' ? client.invoiceCode : ''
   const custom = normalizeInvoiceCode(raw)
   if (custom) return custom
-  // The SHORT name, so a couple gets GARDNER rather than SYLVIACRAIGGARDNER.
-  // A client named only in emoji/punctuation would normalize to nothing.
-  return normalizeInvoiceCode(clientShortName(client)) || 'CLIENT'
+
+  // A business is billed under its own name, not somebody's initials.
+  const business = businessOf(client)
+  if (business) return normalizeInvoiceCode(business) || 'CLIENT'
+
+  // Legacy clients get the same treatment via a best-effort split, so the rule
+  // doesn't wait on someone opening every client to restructure them.
+  const people = realPeople(client).length
+    ? realPeople(client)
+    : splitLegacyName(client?.name ?? '')
+
+  const initials = people.map(p => p.first.trim().charAt(0)).filter(Boolean).join('')
+  const lasts = people.map(p => p.last.trim()).filter(Boolean)
+  // A couple sharing a surname is the common case; when they don't share one
+  // the first person's carries the code rather than gluing both on.
+  const surname = lasts.length > 0 ? lasts[0] : ''
+
+  const code = surname
+    ? `${initials}${surname}`
+    // Nobody has a surname ("Cathy") — initials alone would be one letter.
+    : people.map(p => p.first.trim()).filter(Boolean).join('')
+  return normalizeInvoiceCode(code) || 'CLIENT'
 }
 
 /** 'YYYY-MM-DD' → 'YYYYMMDD', the date form invoice numbers use. */

@@ -29,3 +29,8 @@ dist-ssr
 # They're inputs to scripts/toggl-to-traction.py, not something to publish.
 Toggl_*.csv
 *_time_entries_*.csv
+
+# Full state exports — every client, rate and hour you have. Working input only.
+traction-backup-*.json
+traction-import-*.json
+traction-merged-*.json

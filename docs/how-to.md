@@ -170,11 +170,13 @@ Track costs the moment you incur them — the mirror image of time entries, on t
   the Again grid. Every swatch is named, and the editor previews the actual pill with the
   colour's name beside it, so you never have to identify one by looking at it. Blank =
   the default neutral pill.
-- **Invoice code:** the prefix on this client's invoice numbers. Defaults to their
-  **short** name with punctuation stripped, so Sylvia & Craig Gardner get
-  `GARDNER-20260827-01` rather than `SYLVIACRAIGGARDNER-…`. Set your own when it's still
-  unwieldy — *Seymour Suthersby Smithson* → `SEYSUTH`. Both the code and the client's
-  colour show on their card in the Clients list.
+- **Invoice code:** the prefix on this client's invoice numbers. Built from the name —
+  **every person's first initial, then the surname in full**: Larry and Linda Gies are
+  `LLGIES`, Diana Baskins is `DBASKINS`, Grayson and Catherine MacArthur are
+  `GCMACARTHUR`. A business uses its own name. Type your own to override it, and that
+  choice is never overwritten. Nothing is ever auto-*saved* into the field — the code
+  follows the name until you set one. Both the code and the client's colour show on
+  their card in the Clients list.
 - **Custom rates for this client:** inside the editor, expand *"Custom rates for this
   client"* to set a per-service rate that overrides the default **for this client only**.
   Example: everyone pays $30/hr for Deck cleanup, but Larry pays $35 — set it here and
