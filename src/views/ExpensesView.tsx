@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { Expense, TractionState } from '../types'
-import { EXPENSE_CATEGORIES, formatDate, formatMoney, makeExpense, todayISO } from '../store'
+import { EXPENSE_CATEGORIES, clientColor, formatDate, formatMoney, makeExpense, todayISO } from '../store'
+import { ClientLabel } from '../Chrome'
 import { supabase } from '../supabaseClient'
 import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../receipts'
 import { Picker } from './Picker'
@@ -152,7 +153,8 @@ function ExpenseRow({
 }) {
   const [editing, setEditing] = useState(false)
   const cur = state.settings.currency
-  const clientName = expense.clientId ? (state.clients.find(c => c.id === expense.clientId)?.name ?? 'Unknown') : null
+  const client = expense.clientId ? (state.clients.find(c => c.id === expense.clientId) ?? null) : null
+  const clientName = expense.clientId ? (client?.name ?? 'Unknown') : null
   const invoiced = !!expense.invoiceId
   const invNum = invoiced ? state.invoices.find(i => i.id === expense.invoiceId)?.number : null
 
@@ -175,7 +177,7 @@ function ExpenseRow({
         <div className="entry-sub">
           <span>{formatDate(expense.date)}</span>
           {expense.billable
-            ? <span className={`client-tag ${clientName ? '' : 'general'}`}>{clientName ?? 'General'}</span>
+            ? <ClientLabel name={clientName} color={clientColor(client)} />
             : <span className="client-tag general">Overhead</span>}
           {invoiced && <span className="invoiced-tag" title="On an invoice">{invNum ?? 'invoiced'}</span>}
         </div>

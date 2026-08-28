@@ -1,16 +1,26 @@
 import { useMemo, useState } from 'react'
-import type { Client, Service, TimeEntry, TractionState } from '../types'
+import type { Client, DurationStyle, Service, TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
   paymentStateOf, rollupPaymentState, isMixedPayment, daysBetween, jobKey, isFavorite,
+  clientColor, epochFromDateTime, toTimeInput, validateRange, dateFromEpoch,
   type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
+import { ClientLabel } from '../Chrome'
+import { DurationFields, DurationToggle } from './DurationFields'
 import { EntryRow } from './EntryRow'
 import { Picker } from './Picker'
 
 /** How many recent jobs to offer alongside the pinned ones. */
 const RECENT_LIMIT = 6
+
+/**
+ * Jobs in the one-tap "Again" grid. Four, in a 2x2 — enough that the handful of
+ * jobs a week actually consists of are all one tap away, few enough that the
+ * grid stays thumb-sized and the start form is still on screen under it.
+ */
+const AGAIN_SLOTS = 4
 
 /**
  * Clients shown in the invoice nudge before it collapses behind a "show more".
@@ -34,7 +44,7 @@ const PAY_HINT: Record<PaymentState, string> = {
 
 export function TimerView({
   state, onStart, onStop, onUpdateEntry, onDeleteEntry, onAddManual, onAddService, onAddClient,
-  onGoInvoice, onAttachPhoto, onRemovePhoto, onToggleFavorite,
+  onGoInvoice, onAttachPhoto, onRemovePhoto, onToggleFavorite, onSetDurationFormat,
 }: {
   state: TractionState
   onGoInvoice: (clientId?: string) => void
@@ -44,10 +54,11 @@ export function TimerView({
   onStop: (id: string) => void
   onUpdateEntry: (e: TimeEntry) => void
   onDeleteEntry: (id: string) => void
-  onAddManual: (serviceId: string, clientId: string | null, date: string, seconds: number, rate: number, note: string) => void
+  onAddManual: (serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string) => void
   onAddService: (name: string, rate: number) => Service
   onAddClient: (name: string) => Client
   onToggleFavorite: (serviceId: string, clientId: string | null) => void
+  onSetDurationFormat: (style: DurationStyle) => void
 }) {
   const services = state.services.filter(s => !s.archived)
   const clients = state.clients.filter(c => !c.archived)
@@ -71,6 +82,7 @@ export function TimerView({
   const effectiveRate = rate !== '' ? Number(rate) : resolvedRate
 
   const clientName = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? null) : null
+  const durationStyle = state.settings.durationFormat ?? 'hm'
 
   // Full history, newest day first, grouped by date — the Toggl home list.
   const byDate = useMemo(() => {
@@ -129,31 +141,47 @@ export function TimerView({
   }, [state.entries, state.clients])
 
   /**
-   * The one-tap start list: jobs you've pinned, then jobs you've done lately.
+   * The one-tap start list: the four jobs you did most recently in a grid, then
+   * pins and older recents as chips beneath.
    *
-   * Recency alone is only enough while the client list is short. Once a week
-   * holds a dozen different jobs, the thing you do every Tuesday has been pushed
-   * off the end by Thursday — which is exactly when pinning earns its keep. Pins
-   * come first and never age out; recents fill the rest.
+   * The grid used to be a single "Again" button for the very last job, which
+   * only ever helped on the day you did that one thing — a Tuesday of four
+   * different yards left three of them two dropdowns away. Four unique jobs
+   * covers a realistic day at the same one-tap cost.
+   *
+   * Recency alone is still only enough while the client list is short: once a
+   * week holds a dozen jobs, the thing you do every Tuesday has been pushed off
+   * the end by Thursday, which is where pinning earns its keep. Pins lead the
+   * chip row and never age out; older recents fill the rest.
    */
-  const { lastJob, quickJobs } = useMemo(() => {
+  const { againJobs, quickJobs } = useMemo(() => {
     const describe = (sid: string, cid: string | null) => {
       const svc = state.services.find(s => s.id === sid)
       // A job whose service was deleted or archived can't be started any more.
       if (!svc || svc.archived) return null
-      const cName = cid ? (state.clients.find(c => c.id === cid)?.name ?? null) : null
+      const client = cid ? (state.clients.find(c => c.id === cid) ?? null) : null
       return {
         key: jobKey(sid, cid), serviceId: sid, clientId: cid, color: svc.color,
-        label: cName ? `${svc.name} · ${cName}` : svc.name,
+        serviceName: svc.name,
+        clientName: client?.name ?? null,
+        clientColor: clientColor(client),
+        label: client ? `${svc.name} · ${client.name}` : svc.name,
       }
     }
 
     const recentFirst = [...state.entries].sort((a, b) => b.createdAt - a.createdAt)
-    const last = recentFirst.map(e => describe(e.serviceId, e.clientId)).find(j => j !== null) ?? null
 
-    const seen = new Set<string>(last ? [last.key] : [])
+    const seen = new Set<string>()
+    const again: NonNullable<ReturnType<typeof describe>>[] = []
+    for (const e of recentFirst) {
+      if (again.length >= AGAIN_SLOTS) break
+      const job = describe(e.serviceId, e.clientId)
+      if (!job || seen.has(job.key)) continue
+      seen.add(job.key)
+      again.push(job)
+    }
+
     const jobs: (NonNullable<ReturnType<typeof describe>> & { pinned: boolean })[] = []
-
     for (const f of state.settings.favorites ?? []) {
       const job = describe(f.serviceId, f.clientId)
       if (!job || seen.has(job.key)) continue
@@ -169,7 +197,7 @@ export function TimerView({
       jobs.push({ ...job, pinned: false })
       recents++
     }
-    return { lastJob: last, quickJobs: jobs }
+    return { againJobs: again, quickJobs: jobs }
   }, [state.entries, state.services, state.clients, state.settings.favorites])
 
   function handleStart() {
@@ -224,12 +252,21 @@ export function TimerView({
       ) : (
         <div className="panel start-panel">
           <h2>Track time</h2>
-          {/* One tap from a cold start: the job you did last, no pickers. */}
-          {lastJob && (
-            <button className="btn primary big again-btn" onClick={() => resume(lastJob)}>
-              <span className="chip-dot" style={{ background: lastJob.color }} />
-              <span className="again-label">▶ Again — {lastJob.label}</span>
-            </button>
+          {/* One tap from a cold start, for any of the last four jobs — no
+              pickers, no scrolling, all four targets the same size. */}
+          {againJobs.length > 0 && (
+            <div className="again-grid">
+              {againJobs.map(j => (
+                <button key={j.key} className="btn again-btn" onClick={() => resume(j)}
+                  title={`Start ${j.label} again`}>
+                  <span className="again-svc">
+                    <span className="chip-dot" style={{ background: j.color }} />
+                    {j.serviceName}
+                  </span>
+                  <ClientLabel name={j.clientName} color={j.clientColor} />
+                </button>
+              ))}
+            </div>
           )}
           {quickJobs.length > 0 && (
             <div className="resume-chips">
@@ -394,7 +431,7 @@ export function TimerView({
         </div>
         {shown.count > 0 && (filterClient !== '' || filterPayment !== '') && (
           <p className="filter-summary">
-            {shown.count} entr{shown.count === 1 ? 'y' : 'ies'} · {formatDuration(shown.seconds)}
+            {shown.count} entr{shown.count === 1 ? 'y' : 'ies'} · {formatDuration(shown.seconds, durationStyle)}
             <span className={`filter-total ${filterPayment || 'unbilled'}`}>
               {formatMoney(shown.amount, state.settings.currency)}
             </span>
@@ -403,6 +440,8 @@ export function TimerView({
         {adding && (
           <ManualEntryForm
             state={state}
+            durationStyle={durationStyle}
+            onSetDurationFormat={onSetDurationFormat}
             onAdd={(...args) => { onAddManual(...args); setAdding(false) }}
           />
         )}
@@ -421,7 +460,7 @@ export function TimerView({
           return (
             <div key={date} className="panel">
               <div className="panel-head">
-                <h3>{date === todayISO() ? 'Today' : formatDate(date)} · {formatDuration(daySecs)}</h3>
+                <h3>{date === todayISO() ? 'Today' : formatDate(date)} · {formatDuration(daySecs, durationStyle)}</h3>
                 <span
                   className={`total-pill ${dayAmt === 0 ? 'zero' : dayState}${mixed ? ' mixed' : ''}`}
                   title={dayAmt === 0 ? 'No billable value — archived or unrated work'
@@ -455,30 +494,67 @@ export function TimerView({
   )
 }
 
+/** A fresh manual entry defaults to the hour you just finished, not to 9am. */
+const MANUAL_DEFAULT_SECONDS = 3600
+
+/** Round an epoch down to a 5-minute mark — nobody hand-logs to the minute. */
+function roundTo5(ms: number): number {
+  return Math.floor(ms / 300_000) * 300_000
+}
+
 function ManualEntryForm({
-  state, onAdd,
+  state, durationStyle, onSetDurationFormat, onAdd,
 }: {
   state: TractionState
-  onAdd: (serviceId: string, clientId: string | null, date: string, seconds: number, rate: number, note: string) => void
+  durationStyle: DurationStyle
+  onSetDurationFormat: (style: DurationStyle) => void
+  onAdd: (serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string) => void
 }) {
   const services = state.services.filter(s => !s.archived)
   const [serviceId, setServiceId] = useState('')
   const [clientId, setClientId] = useState('')
-  const [date, setDate] = useState(todayISO())
-  const [hours, setHours] = useState('')
-  const [minutes, setMinutes] = useState('')
   const [rate, setRate] = useState('')
   const [note, setNote] = useState('')
+
+  /**
+   * Day, start clock and end clock are three separate controls, and the day is
+   * deliberately not folded into two datetime-locals: re-dating an entry to
+   * last Tuesday would then drag both times around with it, and a phone's
+   * date+time wheel is two spins where a time wheel is one.
+   *
+   * Seeded to the hour you just finished rather than a fixed 9am. The old form
+   * only asked for a duration and stamped every manual entry as starting at
+   * 09:00, which then printed on the invoice as a time you demonstrably were
+   * not there.
+   */
+  const [seed] = useState(() => roundTo5(Date.now()))
+  const [date, setDate] = useState(() => dateFromEpoch(seed))
+  const [start, setStart] = useState(() => toTimeInput(seed - MANUAL_DEFAULT_SECONDS * 1000))
+  const [end, setEnd] = useState(() => toTimeInput(seed))
+
+  const now = useNow(true, 30_000)
+  const startedAt = epochFromDateTime(date, start)
+  const endedAt = epochFromDateTime(date, end)
+  const secs = startedAt != null && endedAt != null
+    ? Math.max(0, Math.round((endedAt - startedAt) / 1000))
+    : 0
+  const problem = startedAt != null && endedAt != null
+    ? validateRange(startedAt, endedAt, now)
+    : { field: 'start' as const, message: 'Pick a day and a start and end time.' }
+
+  /** Typing a duration moves the END, exactly as it does when editing an entry. */
+  function setDuration(seconds: number) {
+    if (startedAt == null) return
+    setEnd(toTimeInput(startedAt + Math.max(0, seconds) * 1000))
+  }
 
   const selected = services.find(s => s.id === serviceId)
   const selectedClient = clientId ? (state.clients.find(c => c.id === clientId) ?? null) : null
   const effectiveRate = rate !== '' ? Number(rate) : resolveRate(selected, selectedClient)
 
   function submit() {
-    if (!serviceId) return
-    const secs = (Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60
-    if (secs <= 0) return
-    onAdd(serviceId, clientId || null, date, secs, effectiveRate, note.trim())
+    if (!serviceId || problem || startedAt == null || secs <= 0) return
+    onAdd(serviceId, clientId || null, startedAt, secs, effectiveRate, note.trim())
   }
 
   return (
@@ -500,20 +576,34 @@ function ManualEntryForm({
           onChange={id => setClientId(id ?? '')}
         />
         <label className="field"><span>Date</span>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+          <input type="date" value={date} max={todayISO()}
+            onChange={e => setDate(e.target.value)} /></label>
+      </div>
+      <div className="field-row time-range">
+        <label className="field"><span>Start</span>
+          <input type="time" value={start} onChange={e => setStart(e.target.value)} /></label>
+        <span className="range-arrow" aria-hidden="true">→</span>
+        <label className="field"><span>End</span>
+          <input type="time" value={end} onChange={e => setEnd(e.target.value)} /></label>
       </div>
       <div className="field-row">
-        <label className="field narrow-field"><span>Hours</span>
-          <input type="number" min="0" value={hours} onChange={e => setHours(e.target.value)} /></label>
-        <label className="field narrow-field"><span>Minutes</span>
-          <input type="number" min="0" max="59" value={minutes} onChange={e => setMinutes(e.target.value)} /></label>
+        <DurationFields seconds={secs} style={durationStyle} onChange={setDuration} />
         <label className="field narrow-field"><span>Rate /hr</span>
           <input type="number" min="0" placeholder={String(resolveRate(selected, selectedClient))}
             value={rate} onChange={e => setRate(e.target.value)} /></label>
+        <div className="field format-field">
+          <span>Show hours as</span>
+          <DurationToggle value={durationStyle} onChange={onSetDurationFormat} />
+        </div>
+      </div>
+      <div className="field-row">
         <label className="field"><span>Note</span>
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></label>
       </div>
-      <button className="btn primary" disabled={!serviceId} onClick={submit}>Add entry</button>
+      {problem && <p className="hint tiny err">{problem.message}</p>}
+      <button className="btn primary" disabled={!serviceId || !!problem || secs <= 0} onClick={submit}>
+        Add entry
+      </button>
     </div>
   )
 }

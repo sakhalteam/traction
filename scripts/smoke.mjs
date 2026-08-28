@@ -31,12 +31,27 @@ const state = {
       date: iso(now - 5 * DAY), startedAt: now - 5 * DAY, seconds: 7200, runningSince: null,
       rate: 65, invoiceId: null, photoPaths: [], createdAt: now - 5 * DAY,
     },
-    // A second, more recent job so one row is the "Again" button and the other
-    // is a chip — the pinning tests need a chip to exist.
     {
       id: 'e2', clientId: 'c2', serviceId: 's2', note: 'driveway',
       date: iso(now - 2 * DAY), startedAt: now - 2 * DAY, seconds: 5400, runningSince: null,
       rate: 85, invoiceId: null, photoPaths: [], createdAt: now - 2 * DAY,
+    },
+    // Five distinct service+client pairings in total: four fill the Again grid
+    // and the fifth is pushed down to the chip row, which the pinning tests need.
+    {
+      id: 'e3', clientId: 'c2', serviceId: 's1', note: 'side lawn',
+      date: iso(now - DAY), startedAt: now - DAY, seconds: 3600, runningSince: null,
+      rate: 65, invoiceId: null, photoPaths: [], createdAt: now - DAY,
+    },
+    {
+      id: 'e4', clientId: 'c1', serviceId: 's2', note: 'back patio',
+      date: iso(now - 4 * DAY), startedAt: now - 4 * DAY, seconds: 3600, runningSince: null,
+      rate: 85, invoiceId: null, photoPaths: [], createdAt: now - 4 * DAY,
+    },
+    {
+      id: 'e5', clientId: null, serviceId: 's1', note: 'own yard',
+      date: iso(now - 6 * DAY), startedAt: now - 6 * DAY, seconds: 1800, runningSince: null,
+      rate: 0, invoiceId: null, photoPaths: [], createdAt: now - 6 * DAY,
     },
   ],
   expenses: [],
@@ -70,14 +85,16 @@ await page.waitForTimeout(600)
 const readState = () => page.evaluate(() => JSON.parse(localStorage.getItem('traction-state')))
 
 // ---- 1. Start a timer from the "Again" button ----------------------------
-await page.locator('.again-btn').click()
+check('Again grid caps at four unique jobs',
+  await page.locator('.again-btn').count() === 4, `got ${await page.locator('.again-btn').count()}`)
+await page.locator('.again-btn').first().click()
 await page.waitForTimeout(400)
 check('Again starts a timer', await page.locator('.running-card').isVisible())
 
 let s = await readState()
-// "Again" resumes the most recently created job, which is e2 (s2 for c2).
+// The first grid slot is the most recently created job, e3 (s1 for c2).
 check('Started entry carries the job details',
-  s.entries.some(e => e.runningSince && e.serviceId === 's2' && e.clientId === 'c2' && e.rate === 85))
+  s.entries.some(e => e.runningSince && e.serviceId === 's1' && e.clientId === 'c2' && e.rate === 65))
 
 // ---- 2. The running bar follows you to another tab -----------------------
 await page.locator('.tab', { hasText: 'Invoices' }).click()
@@ -181,7 +198,7 @@ check('Saved start matches what was typed',
   new Date(edited?.startedAt).getTime() === new Date(start1).getTime())
 
 // ---- 8. A running entry can be re-timed without stopping ----------------
-await page.locator('.again-btn').click()
+await page.locator('.again-btn').first().click()
 await page.waitForTimeout(500)
 await page.locator('.entry-row.live').locator('.icon-btn[title*="Edit"]').click()
 await page.waitForTimeout(300)
@@ -201,6 +218,88 @@ check('Backdated start re-anchors the running span',
     && new Date(live.startedAt).getTime() === new Date(backdated).getTime(),
   `startedAt ${live && new Date(live.startedAt).toISOString()}`)
 check('Live entry still reads as running', await page.locator('.running-card').isVisible())
+
+// ---- 9. Manual entry takes real start and end times ---------------------
+await page.locator('.entry-row.live .icon-btn[title="Stop"]').click()
+await page.waitForTimeout(400)
+await page.locator('button', { hasText: '+ Manual entry' }).click()
+await page.waitForTimeout(400)
+const form = page.locator('.manual-form')
+check('Manual entry offers start and end times',
+  await form.locator('input[type="time"]').count() === 2)
+
+await form.locator('.picker-trigger').first().click()
+await page.waitForTimeout(300)
+await page.locator('.picker-row', { hasText: 'Mowing & edging' }).click()
+await page.waitForTimeout(300)
+await form.locator('input[type="date"]').fill(iso(now - 3 * DAY))
+await form.locator('input[type="time"]').nth(0).fill('07:15')
+await form.locator('input[type="time"]').nth(1).fill('11:45')
+await page.waitForTimeout(300)
+check('Duration follows the typed times',
+  (await form.locator('input[type="number"]').first().inputValue()) === '4',
+  `hours field reads ${await form.locator('input[type="number"]').first().inputValue()}`)
+
+await form.locator('button', { hasText: 'Add entry' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const manual = s.entries.find(e => e.date === iso(now - 3 * DAY))
+check('Manual entry stored a real start time',
+  manual && new Date(manual.startedAt).getHours() === 7 && new Date(manual.startedAt).getMinutes() === 15,
+  manual ? new Date(manual.startedAt).toString() : 'no entry')
+check('Manual entry duration is end − start', manual?.seconds === 4.5 * 3600, `got ${manual?.seconds}`)
+
+// ---- 10. Decimal-hours toggle is global ---------------------------------
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(300)
+await page.locator('button', { hasText: '+ Manual entry' }).click()
+await page.waitForTimeout(300)
+await page.locator('.duration-toggle button', { hasText: '4.5h' }).click()
+await page.waitForTimeout(400)
+s = await readState()
+check('Toggle writes the app-wide setting', s.settings.durationFormat === 'decimal',
+  `got ${s.settings.durationFormat}`)
+check('Decimal mode collapses to one hours field',
+  await page.locator('.manual-form input[type="number"]').count() === 2,
+  'hours + rate, no minutes box')
+
+const dayHead = await page.locator('.panel-head h3', { hasText: '·' }).first().innerText()
+check('Time log reads in decimal', /\d+(\.\d+)?h$/.test(dayHead.trim()), `header reads "${dayHead}"`)
+
+await page.locator('.tab', { hasText: 'More' }).click()
+await page.waitForTimeout(300)
+await page.locator('.more-row', { hasText: 'Reports' }).click()
+await page.waitForTimeout(600)
+const hoursTile = await page.locator('.stat-tile', { hasText: 'Hours' }).innerText()
+check('Reports reads in decimal too', /[0-9]+(\.[0-9]+)?h/.test(hoursTile), hoursTile.split(String.fromCharCode(10)).join(' '))
+await page.locator('.duration-toggle button', { hasText: '4h 30m' }).click()
+await page.waitForTimeout(400)
+s = await readState()
+check('Reports toggle flips it back', s.settings.durationFormat === 'hm')
+
+// ---- 11. Client pill colours -------------------------------------------
+await page.locator('.tab', { hasText: 'Clients' }).click()
+await page.waitForTimeout(500)
+await page.locator('.client-card', { hasText: 'The Steins' }).locator('.icon-btn').click()
+await page.waitForTimeout(400)
+check('Twenty colours plus a default are offered',
+  await page.locator('.client-swatch').count() === 21,
+  `got ${await page.locator('.client-swatch').count()}`)
+await page.locator('.client-swatch[aria-label="Amber deep"]').click()
+await page.waitForTimeout(300)
+await page.locator('.client-editor button', { hasText: 'Save' }).click()
+await page.waitForTimeout(400)
+s = await readState()
+check('Chosen colour is stored on the client',
+  s.clients.find(c => c.id === 'c1')?.colorId === 'amber-deep',
+  `got ${s.clients.find(c => c.id === 'c1')?.colorId}`)
+
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(500)
+const pill = page.locator('.entry-row', { hasText: 'front strip' }).locator('.client-tag').first()
+const pillBg = await pill.evaluate(el => getComputedStyle(el).backgroundColor)
+check('The pill actually wears it in the time log',
+  pillBg.replace(/\s/g, '') === 'rgba(234,179,8,0.42)', `computed ${pillBg}`)
 
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 

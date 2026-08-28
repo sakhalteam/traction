@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
+import type { ClientColor } from './store'
 
 // The old separate 'log' view is gone — the Timer screen IS the log now, the
 // way Toggl's home screen works: timer on top, date-grouped history below.
@@ -177,6 +178,20 @@ export function Chrome({
 
 /** Shared small building blocks reused across views. */
 
-export function ClientLabel({ name }: { name: string | null }) {
-  return <span className={`client-tag ${name ? '' : 'general'}`}>{name ?? 'General'}</span>
+export function ClientLabel({
+  name, color, title,
+}: {
+  name: string | null
+  /** The client's chosen pill colour; omit for the default neutral pill. */
+  color?: ClientColor | null
+  title?: string
+}) {
+  // Inline rather than a class per colour: twenty pairs would mean forty CSS
+  // rules that have to stay in lockstep with the palette array.
+  const style = color ? { background: color.bg, color: color.fg } : undefined
+  return (
+    <span className={`client-tag ${name ? '' : 'general'}`} style={style} title={title}>
+      {name ?? 'General'}
+    </span>
+  )
 }

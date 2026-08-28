@@ -1,5 +1,12 @@
 // ---- Core entities -------------------------------------------------------
 
+/**
+ * How every duration in the app reads. 'hm' is "3h 47m"; 'decimal' is "3.78h",
+ * which is what you want when a duration has to be reasoned about as a number —
+ * comparing a week in Reports, or typing "4.5" into a manual entry.
+ */
+export type DurationStyle = 'hm' | 'decimal'
+
 /** A person/household you do work for. */
 export interface Client {
   id: string
@@ -17,6 +24,13 @@ export interface Client {
    * spaces and punctuation stripped — see `clientInvoiceCode`.
    */
   invoiceCode?: string
+  /**
+   * Which pill colour this client wears in time logs, expenses and the running
+   * bar — a `CLIENT_COLORS` id. Absent means the default neutral pill; colours
+   * are always chosen, never auto-assigned, since an arbitrary colour carries
+   * no meaning to the person reading it.
+   */
+  colorId?: string
   archived: boolean
   createdAt: number
 }
@@ -188,6 +202,13 @@ export interface Settings {
   invoiceCounter: number
   /** Currency symbol prefix, e.g. "$". */
   currency: string
+  /**
+   * How every duration in the app reads: '3h 47m' or '3.78h'. One setting for
+   * the whole app rather than a per-screen preference — a duration that means
+   * different things on two screens is worse than either format alone.
+   * Absent on states saved before the toggle existed.
+   */
+  durationFormat?: DurationStyle
   /** Default payment terms in days; stamped onto each new invoice's dueDate. */
   netDays: number
   /**

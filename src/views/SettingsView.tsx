@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import type { Settings, TractionState } from '../types'
+import type { DurationStyle, Settings, TractionState } from '../types'
 import { entriesToCSV, expensesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
 import { ReceiptError, uploadLogo } from '../receipts'
 import { supabase } from '../supabaseClient'
+import { DurationToggle } from './DurationFields'
 import { LogoImage } from './LogoImage'
 
 function download(filename: string, text: string, type: string) {
@@ -15,12 +16,13 @@ function download(filename: string, text: string, type: string) {
 }
 
 export function SettingsView({
-  state, onUpdate, onReset, onImport,
+  state, onUpdate, onReset, onImport, onSetDurationFormat,
 }: {
   state: TractionState
   onUpdate: (s: Settings) => void
   onReset: () => void
   onImport: (state: TractionState) => void
+  onSetDurationFormat: (style: DurationStyle) => void
 }) {
   const [s, setS] = useState(state.settings)
   const [confirmReset, setConfirmReset] = useState(false)
@@ -126,6 +128,20 @@ export function SettingsView({
         <p className="hint tiny">
           Invoice numbers are <strong>CODE-YYYYMMDD-NN</strong>, counting up per client per
           day. Set a client's code under <strong>Clients</strong>; it defaults to their name.
+        </p>
+        <div className="field">
+          <span>Show hours as</span>
+          {/* Saves on tap rather than waiting for the button below: it's a
+              display switch you flip to look at something, and reading the
+              effect is the whole point. */}
+          <DurationToggle
+            value={state.settings.durationFormat ?? 'hm'}
+            onChange={style => { set({ durationFormat: style }); onSetDurationFormat(style) }}
+          />
+        </div>
+        <p className="hint tiny">
+          Applies everywhere — the time log, invoices and reports. Also switchable from
+          Reports and from the manual-entry form.
         </p>
         <button className="btn primary" disabled={!dirty} onClick={() => onUpdate(s)}>
           {dirty ? 'Save changes' : 'Saved'}

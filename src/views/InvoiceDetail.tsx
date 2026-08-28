@@ -23,6 +23,7 @@ export function InvoiceDetail({
   const [confirmDel, setConfirmDel] = useState(false)
   const client = state.clients.find(c => c.id === invoice.clientId)
   const settings = state.settings
+  const durationStyle = settings.durationFormat ?? 'hm'
   const locked = invoice.status === 'paid'
 
   // Prefer the FROZEN snapshot; legacy invoices (pre-snapshot) re-derive live.
@@ -101,7 +102,7 @@ export function InvoiceDetail({
                       {line.serviceName}
                       {line.notes.length > 0 && <span className="line-note"> — {line.notes.join(', ')}</span>}
                     </td>
-                    <td className="num">{formatDuration(line.seconds)}</td>
+                    <td className="num">{formatDuration(line.seconds, durationStyle)}</td>
                     <td className="num">{formatMoney(line.rate, settings.currency)}</td>
                     <td className="num">{formatMoney(line.amount, settings.currency)}</td>
                   </tr>
@@ -114,7 +115,7 @@ export function InvoiceDetail({
                   <tr className="day-subtotal">
                     <td />
                     <td className="dim">{formatDate(day.date)} subtotal</td>
-                    <td className="num dim">{formatDuration(day.daySeconds)}</td>
+                    <td className="num dim">{formatDuration(day.daySeconds, durationStyle)}</td>
                     <td />
                     <td className="num">{formatMoney(day.dayTotal, settings.currency)}</td>
                   </tr>
@@ -151,7 +152,7 @@ export function InvoiceDetail({
             )}
             <tr className="grand-total">
               <td colSpan={2}>Total</td>
-              <td className="num">{formatDuration(breakdown.totalSeconds)}</td>
+              <td className="num">{formatDuration(breakdown.totalSeconds, durationStyle)}</td>
               <td />
               <td className="num">{formatMoney(grand, settings.currency)}</td>
             </tr>

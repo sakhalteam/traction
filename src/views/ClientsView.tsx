@@ -3,7 +3,9 @@ import type { Client, Service, TractionState } from '../types'
 import {
   formatDuration, formatMoney, liveSeconds, lineAmount,
   clientInvoiceCode, compactDate, normalizeInvoiceCode, todayISO, INVOICE_SEQ_PAD,
+  CLIENT_COLORS, clientColor,
 } from '../store'
+import { ClientLabel } from '../Chrome'
 
 export function ClientsView({
   state, onAdd, onUpdate, onDelete, onGoInvoice,
@@ -18,6 +20,7 @@ export function ClientsView({
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const clients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
+  const durationStyle = state.settings.durationFormat ?? 'hm'
 
   function unbilled(clientId: string) {
     const entries = state.entries.filter(e => e.clientId === clientId && !e.invoiceId && !e.runningSince)
@@ -66,6 +69,7 @@ export function ClientsView({
                   <>
                     <div className="client-head">
                       <h3>{c.name}</h3>
+                      {c.colorId && <ClientLabel name={c.name} color={clientColor(c)} />}
                       {/* Only shown when it's been overridden — the default is
                           just the name, and echoing that back is noise. */}
                       {c.invoiceCode && (
@@ -82,7 +86,7 @@ export function ClientsView({
                         <span className="big-money">{formatMoney(u.amount, state.settings.currency)}</span>
                         <span className="dim"> unbilled</span>
                       </div>
-                      <div className="dim">{u.count} entr{u.count === 1 ? 'y' : 'ies'} · {formatDuration(u.seconds)}</div>
+                      <div className="dim">{u.count} entr{u.count === 1 ? 'y' : 'ies'} · {formatDuration(u.seconds, durationStyle)}</div>
                     </div>
                     {u.count > 0 && (
                       <button className="btn" onClick={() => onGoInvoice(c.id)}>Create invoice →</button>
@@ -123,6 +127,7 @@ function ClientEditor({
   }
 
   const overrideCount = Object.keys(c.rates).length
+  const selectedColor = clientColor(c)
   // Today's date on purpose: it's what they'd get if they invoiced right now.
   const numberPreview =
     `${clientInvoiceCode(c)}-${compactDate(todayISO())}-${'1'.padStart(INVOICE_SEQ_PAD, '0')}`
@@ -149,6 +154,37 @@ function ClientEditor({
           <input value={c.phone} onChange={e => set({ phone: e.target.value })} /></label>
         <label className="field"><span>Email</span>
           <input value={c.email} onChange={e => set({ email: e.target.value })} /></label>
+      </div>
+      <div className="field">
+        <span>Pill colour</span>
+        <div className="swatch-row client-swatches">
+          <button
+            type="button"
+            className={`swatch client-swatch ${!c.colorId ? 'sel' : ''}`}
+            title="Default"
+            aria-label="Default"
+            aria-pressed={!c.colorId}
+            onClick={() => set({ colorId: undefined })}
+          >A</button>
+          {CLIENT_COLORS.map(col => (
+            <button
+              key={col.id}
+              type="button"
+              className={`swatch client-swatch ${c.colorId === col.id ? 'sel' : ''}`}
+              style={{ background: col.bg, color: col.fg }}
+              /* Named, not just shown: picking a colour you can't reliably see
+                 has to work by label, and the title is that label. */
+              title={col.label}
+              aria-label={col.label}
+              aria-pressed={c.colorId === col.id}
+              onClick={() => set({ colorId: col.id })}
+            >A</button>
+          ))}
+        </div>
+        <p className="hint tiny">
+          <ClientLabel name={c.name || 'Client'} color={clientColor(c)} />
+          {' '}— how this client reads in the time log. {selectedColor?.label ?? 'Default'}.
+        </p>
       </div>
       <label className="field"><span>Address</span>
         <input value={c.address} onChange={e => set({ address: e.target.value })} /></label>

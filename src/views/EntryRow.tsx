@@ -3,9 +3,11 @@ import type { TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDuration, formatMoney, liveSeconds, lineAmount,
   toLocalInput, fromLocalInput, dateFromEpoch, validateRange, entrySpan, formatTimeOfDay,
-  paymentStateOf,
+  paymentStateOf, clientColor,
 } from '../store'
 import { useNow } from '../useNow'
+import { ClientLabel } from '../Chrome'
+import { DurationFields } from './DurationFields'
 import { JobPhotos } from './JobPhotos'
 import { Picker } from './Picker'
 
@@ -28,9 +30,11 @@ export function EntryRow({
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const service = state.services.find(s => s.id === entry.serviceId)
-  const clientName = entry.clientId
-    ? (state.clients.find(c => c.id === entry.clientId)?.name ?? 'Unknown')
-    : 'General'
+  const client = entry.clientId
+    ? (state.clients.find(c => c.id === entry.clientId) ?? null)
+    : null
+  const clientName = entry.clientId ? (client?.name ?? 'Unknown') : null
+  const durationStyle = state.settings.durationFormat ?? 'hm'
   const secs = liveSeconds(entry, now)
   const invoiced = !!entry.invoiceId
   const payment = paymentStateOf(entry, state.invoices)
@@ -65,7 +69,7 @@ export function EntryRow({
           {entry.note && <span className="entry-note"> · {entry.note}</span>}
         </div>
         <div className="entry-sub">
-          <span className={`client-tag ${entry.clientId ? '' : 'general'}`}>{clientName}</span>
+          <ClientLabel name={clientName} color={clientColor(client)} />
           {showDate && <span> · {entry.date}</span>}
           {span && (
             <span className="entry-span"> · {formatTimeOfDay(span.start)}–{formatTimeOfDay(span.end)}</span>
@@ -83,7 +87,7 @@ export function EntryRow({
         </div>
       </div>
       <div className="entry-figures">
-        <span className="entry-dur">{isRunning ? 'running…' : formatDuration(secs)}</span>
+        <span className="entry-dur">{isRunning ? 'running…' : formatDuration(secs, durationStyle)}</span>
         {/* Colour is derived from the invoice, so it can never claim "paid"
             about work whose invoice still says draft. */}
         {/* A $0 entry (archived agency work carries no rate) is neither owed nor
@@ -214,8 +218,8 @@ function EntryEditor({
   }
 
   /** Typing a duration moves the END and pins the start — Toggl's behaviour. */
-  function setDuration(h: number, m: number) {
-    setEnd(start + Math.max(0, h * 3600 + m * 60) * 1000)
+  function setDuration(seconds: number) {
+    setEnd(start + Math.max(0, seconds) * 1000)
   }
 
   function nudgeEnd(deltaMin: number) {
@@ -297,22 +301,11 @@ function EntryEditor({
         </div>
       ) : (
         <div className="field-row">
-          <label className="field narrow-field">
-            <span>Hours</span>
-            <input
-              type="number" min="0"
-              value={Math.floor(secs / 3600)}
-              onChange={e => setDuration(Number(e.target.value) || 0, Math.floor((secs % 3600) / 60))}
-            />
-          </label>
-          <label className="field narrow-field">
-            <span>Minutes</span>
-            <input
-              type="number" min="0" max="59"
-              value={Math.floor((secs % 3600) / 60)}
-              onChange={e => setDuration(Math.floor(secs / 3600), Number(e.target.value) || 0)}
-            />
-          </label>
+          <DurationFields
+            seconds={secs}
+            style={state.settings.durationFormat ?? 'hm'}
+            onChange={setDuration}
+          />
           <div className="field nudge-field">
             <span>Adjust end</span>
             <div className="nudge-row">

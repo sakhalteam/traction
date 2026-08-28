@@ -4,6 +4,7 @@ import type {
   BreakdownDay,
   BreakdownLine,
   Client,
+  DurationStyle,
   Expense,
   Favorite,
   Invoice,
@@ -43,6 +44,7 @@ export function defaultSettings(): Settings {
     favorites: [],
     invoiceCounter: 1,
     currency: '$',
+    durationFormat: 'hm',
     netDays: 30,
     logoPath: null,
   }
@@ -141,14 +143,25 @@ export function liveSeconds(e: TimeEntry, now: number = Date.now()): number {
   return e.seconds + Math.max(0, running)
 }
 
-/** "3h 47m" — compact human duration. */
-export function formatDuration(totalSeconds: number): string {
+/** "3h 47m", or "3.78h" in decimal style. */
+export function formatDuration(totalSeconds: number, style: DurationStyle = 'hm'): string {
   const s = Math.max(0, Math.floor(totalSeconds))
+  if (style === 'decimal') {
+    // Number() drops the trailing zeros toFixed adds: 4.50 → "4.5h", 4.00 → "4h".
+    return `${Number(decimalHours(s).toFixed(2))}h`
+  }
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   if (h === 0 && m === 0) return `${s % 60}s`
   if (h === 0) return `${m}m`
   return `${h}h ${m}m`
+}
+
+/** Seconds for a typed decimal-hours value ("4.5" → 16200). NaN-safe. */
+export function secondsFromDecimalHours(value: string | number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.round(n * 3600)
 }
 
 /** "0:03:47" — clock style for a live-running timer. */
@@ -266,6 +279,57 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
   }
 
   return { days, totalSeconds, total: Math.round(total * 100) / 100 }
+}
+
+// ---- Client colours ------------------------------------------------------
+
+/** One client pill's look: a tinted fill and the text colour that sits on it. */
+export interface ClientColor {
+  id: string
+  /** Spoken name, not decoration — the picker is unusable by hue alone. */
+  label: string
+  bg: string
+  fg: string
+}
+
+/**
+ * Twenty distinct client pills: ten hues, each in a light and a deep fill.
+ *
+ * Built as hue x weight rather than twenty separate hues on purpose. Twenty
+ * hues are indistinguishable to a lot of eyes (and to anyone glancing at a
+ * phone in daylight), whereas fill weight reads even when the hue doesn't —
+ * so a same-hue pair still tells itself apart. Every swatch is also named, so
+ * the picker never asks you to identify a colour by looking at it.
+ */
+export const CLIENT_COLORS: ClientColor[] = [
+  { id: 'green', label: 'Green', bg: 'rgba(34, 197, 94, 0.18)', fg: '#86efac' },
+  { id: 'teal', label: 'Teal', bg: 'rgba(20, 184, 166, 0.18)', fg: '#5eead4' },
+  { id: 'cyan', label: 'Cyan', bg: 'rgba(6, 182, 212, 0.18)', fg: '#67e8f9' },
+  { id: 'sky', label: 'Sky', bg: 'rgba(14, 165, 233, 0.18)', fg: '#7dd3fc' },
+  { id: 'indigo', label: 'Indigo', bg: 'rgba(99, 102, 241, 0.18)', fg: '#a5b4fc' },
+  { id: 'violet', label: 'Violet', bg: 'rgba(139, 92, 246, 0.18)', fg: '#c4b5fd' },
+  { id: 'pink', label: 'Pink', bg: 'rgba(236, 72, 153, 0.18)', fg: '#f9a8d4' },
+  { id: 'rose', label: 'Rose', bg: 'rgba(244, 63, 94, 0.18)', fg: '#fda4af' },
+  { id: 'orange', label: 'Orange', bg: 'rgba(249, 115, 22, 0.18)', fg: '#fdba74' },
+  { id: 'amber', label: 'Amber', bg: 'rgba(234, 179, 8, 0.18)', fg: '#fcd34d' },
+  { id: 'green-deep', label: 'Green deep', bg: 'rgba(34, 197, 94, 0.42)', fg: '#dcfce7' },
+  { id: 'teal-deep', label: 'Teal deep', bg: 'rgba(20, 184, 166, 0.42)', fg: '#ccfbf1' },
+  { id: 'cyan-deep', label: 'Cyan deep', bg: 'rgba(6, 182, 212, 0.42)', fg: '#cffafe' },
+  { id: 'sky-deep', label: 'Sky deep', bg: 'rgba(14, 165, 233, 0.42)', fg: '#e0f2fe' },
+  { id: 'indigo-deep', label: 'Indigo deep', bg: 'rgba(99, 102, 241, 0.42)', fg: '#e0e7ff' },
+  { id: 'violet-deep', label: 'Violet deep', bg: 'rgba(139, 92, 246, 0.42)', fg: '#ede9fe' },
+  { id: 'pink-deep', label: 'Pink deep', bg: 'rgba(236, 72, 153, 0.42)', fg: '#fce7f3' },
+  { id: 'rose-deep', label: 'Rose deep', bg: 'rgba(244, 63, 94, 0.42)', fg: '#ffe4e6' },
+  { id: 'orange-deep', label: 'Orange deep', bg: 'rgba(249, 115, 22, 0.42)', fg: '#ffedd5' },
+  { id: 'amber-deep', label: 'Amber deep', bg: 'rgba(234, 179, 8, 0.42)', fg: '#fef3c7' },
+]
+
+/** The palette entry a client is set to, or null for the default pill. */
+export function clientColor(
+  client: Pick<Client, 'colorId'> | null | undefined,
+): ClientColor | null {
+  if (!client?.colorId) return null
+  return CLIENT_COLORS.find(c => c.id === client.colorId) ?? null
 }
 
 // ---- Invoice numbering ---------------------------------------------------
@@ -408,6 +472,29 @@ export function toLocalInput(ms: number): string {
 /** "2:24 PM" — local clock time for an epoch ms. */
 export function formatTimeOfDay(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+/** epoch ms → the 'HH:mm' an <input type="time"> wants, in local time. */
+export function toTimeInput(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/**
+ * A 'YYYY-MM-DD' day plus an 'HH:mm' clock time → epoch ms, in local time.
+ *
+ * Manual entry deliberately keeps the day and the two clock times as separate
+ * controls rather than two datetime-locals: re-dating an entry to last Tuesday
+ * then has no way to drag the times with it, and picking a time is one wheel
+ * instead of two on a phone.
+ */
+export function epochFromDateTime(date: string, time: string): number | null {
+  const [y, mo, d] = date.split('-').map(Number)
+  const [h, mi] = time.split(':').map(Number)
+  if (!y || !mo || !d || !Number.isFinite(h) || !Number.isFinite(mi)) return null
+  const ms = new Date(y, mo - 1, d, h, mi, 0, 0).getTime()
+  return Number.isNaN(ms) ? null : ms
 }
 
 /** Inverse of toLocalInput. Returns null for an empty/unparseable value. */

@@ -80,6 +80,8 @@ Your home base for tracking live work.
 - **Job chips:** below it, your **pinned** jobs (★, amber) followed by recent ones.
   One tap re-starts that exact *service + client* — no re-picking. On a phone the
   strip scrolls sideways; swipe for more.
+- **Again grid:** the four jobs you did most recently, as four equal one-tap buttons in
+  a 2x2. Each shows its service and the client's coloured pill. No pickers, no scrolling.
 - **Pinning:** tap the ☆ on any chip, or **☆ Pin** next to Start, to keep a job on
   the list permanently. Recent-only ordering works fine at five clients; once you're
   juggling fifteen, the job you do every Tuesday drops off by Thursday. Pin it.
@@ -110,8 +112,9 @@ Your home base for tracking live work.
 Every entry, grouped by date, newest first — your full history and manual-entry tool.
 
 - **+ Manual entry:** forgot to run the timer? Add time by hand — service, client,
-  date, **hours + minutes**, rate, note. Great for "I did 2 hours at the Stein place
-  yesterday."
+  **date, start time and end time**, rate, note. The times you type are the times that
+  print on the invoice, so a client never reads a start you weren't there for. Typing a
+  duration instead moves the **end** and leaves the start alone.
 - **Filter by client** to see just one person's history.
 - **Edit** (✎) any entry to fix the service, client, rate, note, or times. **Start and
   end are independent** — moving one never drags the other along, it just changes the
@@ -148,6 +151,11 @@ Track costs the moment you incur them — the mirror image of time entries, on t
 
 - **Add** a client with just a name (e.g. *Larry & Linda*); fill in phone, email,
   address, and notes by editing (✎).
+- **Pill colour:** each client can wear one of **20 colours** (ten hues, each in a light
+  and a deep fill) wherever their name appears — the time log, expenses, the running bar,
+  the Again grid. Every swatch is named, and the editor previews the actual pill with the
+  colour's name beside it, so you never have to identify one by looking at it. Blank =
+  the default neutral pill.
 - **Invoice code:** the prefix on this client's invoice numbers. Defaults to their name
   with spaces and punctuation stripped, so *Larry & Linda* → `LARRYLINDA-20260825-01`.
   Set your own when the name is unwieldy — *Seymour Suthersby Smithson* → `SEYSUTH`.
@@ -225,6 +233,11 @@ Your analytics dashboard — the Toggl-style view of the business.
 - **Business details** — the invoice "from" block + currency symbol + payment terms.
   Invoice numbers aren't set here: they're `CODE-YYYYMMDD-NN`, built per client per day
   (set a client's code under **Clients**).
+- **Show hours as** — `4h 30m` or `4.5h`, applied everywhere at once: the time log,
+  invoices, reports and the duration boxes you type into. The same switch sits in
+  **Reports** and on the **manual entry** form, so you can flip it without leaving what
+  you're looking at. It only changes how time is *displayed* — never what an entry
+  bills.
 - **Data & backup:**
   - **⬇ Time entries (CSV)** — a spreadsheet of every entry (date, client, service,
     hours, rate, amount, invoice). Hand this to your accountant at tax time.
@@ -362,6 +375,11 @@ It's on an invoice (look for the *invoiced* tag). Delete that invoice to unlock 
 Open the entry (✎) and set the real **End** time — that stops it there. Or fix the
 hours/minutes if it's already stopped. (traction also nudges you after 8 hours so this
 is rare.)
+
+**Q: Can I see hours as 4.5 instead of 4h 30m?**
+Yes — **Show hours as** in Settings, or the same toggle in Reports and on the manual
+entry form. It's one app-wide setting, so everything reads the same way at once. The
+live running clock stays as a stopwatch (`1:30:02`) — that one counts seconds.
 
 **Q: How are invoices numbered?**
 `CLIENTCODE-YYYYMMDD-NN` — e.g. Cathy's first invoice on Aug 25 2026 is

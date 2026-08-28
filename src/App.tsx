@@ -5,11 +5,11 @@ import {
   emptyState, isEmptyState, loadLocal, saveLocal, touchLocal, saveRemote, loadRemote,
   getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
-  addDays, nextInvoiceNumber,
+  addDays, nextInvoiceNumber, dateFromEpoch,
 } from './store'
 import type { RemoteState } from './store'
 import type {
-  Client, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
+  Client, DurationStyle, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
 } from './types'
 import { deleteReceipt, uploadJobPhoto } from './receipts'
 import { useNow } from './useNow'
@@ -302,10 +302,23 @@ export default function App() {
     if (doomed) await deleteReceipt(supabase, doomed)
   }, [mutate])
   const addManualEntry = useCallback((
-    serviceId: string, clientId: string | null, date: string, seconds: number, rate: number, note: string,
+    serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string,
   ) => {
-    const e = { ...makeEntry(serviceId, rate, clientId, date), seconds, note }
+    // A hand-logged entry now carries a real wall-clock start, so the times
+    // printed on an invoice are the times you were actually there.
+    const e = {
+      ...makeEntry(serviceId, rate, clientId, dateFromEpoch(startedAt), startedAt),
+      seconds, note,
+    }
     mutate(s => ({ ...s, entries: [...s.entries, e] }))
+  }, [mutate])
+
+  /**
+   * The app-wide h:m ↔ decimal switch. Its own action rather than a settings
+   * form save, because it's offered on several screens as a one-tap toggle.
+   */
+  const setDurationFormat = useCallback((durationFormat: DurationStyle) => {
+    mutate(s => ({ ...s, settings: { ...s.settings, durationFormat } }))
   }, [mutate])
 
   // ---- Expense actions (locked once billed onto an invoice) ----
@@ -538,6 +551,7 @@ export default function App() {
             onUpdateEntry={updateEntry}
             onDeleteEntry={deleteEntry}
             onAddManual={addManualEntry}
+            onSetDurationFormat={setDurationFormat}
             onAddService={addService}
             onAddClient={addClient}
             onGoInvoice={goInvoice}
@@ -584,7 +598,9 @@ export default function App() {
             onRemoveCharge={removeInvoiceCharge}
           />
         )}
-        {view === 'reports' && <ReportsView state={state} />}
+        {view === 'reports' && (
+          <ReportsView state={state} onSetDurationFormat={setDurationFormat} />
+        )}
 
         {view === 'settings' && (
           <SettingsView
@@ -592,6 +608,7 @@ export default function App() {
             onUpdate={updateSettings}
             onReset={resetAll}
             onImport={importData}
+            onSetDurationFormat={setDurationFormat}
           />
         )}
       </main>

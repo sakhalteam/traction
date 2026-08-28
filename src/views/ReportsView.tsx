@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import type { TractionState } from '../types'
+import type { DurationStyle, TractionState } from '../types'
 import {
   decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, lineAmount, liveSeconds,
   monthKey, periodLabel, todayISO, weekStartISO,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
+import { DurationToggle } from './DurationFields'
 
 // Validated categorical palette (dark surface #131c2e) for CLIENT series —
 // see the dataviz validator run. Services carry their own colors instead.
@@ -49,12 +50,18 @@ function enumerate(from: string, to: string, g: 'day' | 'week' | 'month'): strin
   return out
 }
 
-export function ReportsView({ state }: { state: TractionState }) {
+export function ReportsView({
+  state, onSetDurationFormat,
+}: {
+  state: TractionState
+  onSetDurationFormat: (style: DurationStyle) => void
+}) {
   const [metric, setMetric] = useState<Metric>('earnings')
   const [rangeId, setRangeId] = useState<RangeId>('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState(todayISO())
   const cur = state.settings.currency
+  const durationStyle = state.settings.durationFormat ?? 'hm'
 
   const today = todayISO()
   const firstEntryDate = useMemo(
@@ -81,7 +88,7 @@ export function ReportsView({ state }: { state: TractionState }) {
 
   // Metric accessors: earnings in dollars, hours in seconds (formatted as h m).
   const val = (secs: number, rate: number) => metric === 'earnings' ? lineAmount(secs, rate) : secs
-  const fmt = (v: number) => metric === 'earnings' ? formatMoney(v, cur) : formatDuration(v)
+  const fmt = (v: number) => metric === 'earnings' ? formatMoney(v, cur) : formatDuration(v, durationStyle)
 
   const totals = useMemo(() => {
     let earnings = 0, seconds = 0, unbilled = 0
@@ -212,16 +219,21 @@ export function ReportsView({ state }: { state: TractionState }) {
                 <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} /></label>
             </div>
           )}
-          <div className="metric-toggle">
-            <button className={metric === 'earnings' ? 'active' : ''} onClick={() => setMetric('earnings')}>Earnings</button>
-            <button className={metric === 'hours' ? 'active' : ''} onClick={() => setMetric('hours')}>Hours</button>
+          <div className="toggle-row">
+            <div className="metric-toggle">
+              <button className={metric === 'earnings' ? 'active' : ''} onClick={() => setMetric('earnings')}>Earnings</button>
+              <button className={metric === 'hours' ? 'active' : ''} onClick={() => setMetric('hours')}>Hours</button>
+            </div>
+            {/* Right here rather than only in Settings: deciding a week reads
+                better in decimal is a thought you have while looking at it. */}
+            <DurationToggle value={durationStyle} onChange={onSetDurationFormat} />
           </div>
         </div>
         <p className="hint tiny range-caption">{formatDate(from)} – {formatDate(to)}</p>
 
         <div className="stat-grid">
           <StatTile label="Earned" value={formatMoney(totals.earnings, cur)} accent />
-          <StatTile label="Hours" value={formatDuration(totals.seconds)} />
+          <StatTile label="Hours" value={formatDuration(totals.seconds, durationStyle)} />
           <StatTile label="Unbilled" value={formatMoney(totals.unbilled, cur)} />
           <StatTile label="Avg rate" value={`${formatMoney(avgRate, cur)}/hr`} />
         </div>
@@ -285,7 +297,7 @@ export function ReportsView({ state }: { state: TractionState }) {
             {serviceBreakdownRows(inRange, state).map(r => (
               <tr key={r.id}>
                 <td><span className="legend-swatch" style={{ background: r.color }} /> {r.name}</td>
-                <td className="num">{formatDuration(r.seconds)}</td>
+                <td className="num">{formatDuration(r.seconds, durationStyle)}</td>
                 <td className="num">{formatMoney(r.earnings, cur)}</td>
               </tr>
             ))}
@@ -293,12 +305,14 @@ export function ReportsView({ state }: { state: TractionState }) {
           <tfoot>
             <tr>
               <td>Total</td>
-              <td className="num">{formatDuration(totals.seconds)}</td>
+              <td className="num">{formatDuration(totals.seconds, durationStyle)}</td>
               <td className="num">{formatMoney(totals.earnings, cur)}</td>
             </tr>
           </tfoot>
         </table>
-        <p className="hint tiny">{decimalHours(totals.seconds)} decimal hours in this range.</p>
+        {durationStyle === 'hm' && (
+          <p className="hint tiny">{decimalHours(totals.seconds)} decimal hours in this range.</p>
+        )}
       </div>
     </div>
   )

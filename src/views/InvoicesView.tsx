@@ -68,6 +68,7 @@ function InvoiceBuilder({
 }) {
   const clients = state.clients.filter(c => !c.archived)
   const cur = state.settings.currency
+  const durationStyle = state.settings.durationFormat ?? 'hm'
   // Arriving from a "bill this client" button opens the builder ready to go;
   // it's only a starting value, so the dropdown still switches freely after.
   const [clientId, setClientId] = useState(initialClientId ?? '')
@@ -163,7 +164,7 @@ function InvoiceBuilder({
                           <input type="checkbox" checked={inc} onChange={() => toggle(e.id)} />
                           <span className="cand-date">{formatDate(e.date)}</span>
                           <span className="cand-svc">{svc?.name ?? '—'}{e.note ? ` · ${e.note}` : ''}</span>
-                          <span className="cand-dur">{formatDuration(secs)}</span>
+                          <span className="cand-dur">{formatDuration(secs, durationStyle)}</span>
                           <span className="cand-amt">{formatMoney(lineAmount(secs, e.rate), cur)}</span>
                         </label>
                       </li>
@@ -198,7 +199,7 @@ function InvoiceBuilder({
             <div className="builder-foot">
               <div className="grand">
                 <span className="dim">
-                  {included.length} entr{included.length === 1 ? 'y' : 'ies'} · {formatDuration(breakdown.totalSeconds)}
+                  {included.length} entr{included.length === 1 ? 'y' : 'ies'} · {formatDuration(breakdown.totalSeconds, durationStyle)}
                   {includedExp.length > 0 && ` + ${includedExp.length} expense${includedExp.length === 1 ? '' : 's'}`}
                   {previewNumber && <> · <span className="inv-num">{previewNumber}</span></>}
                 </span>

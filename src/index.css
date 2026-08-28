@@ -259,7 +259,24 @@ textarea { resize: vertical; }
 .nudge-row .btn { width: auto; }
 
 /* One-tap restart of the last job — the common case gets the big button. */
-.again-btn { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; }
+/* Four equal targets in a 2x2. Deliberately not four green primaries — one
+   hero button was fine, four shouting at once is just noise, so the service
+   dot and the client pill do the telling-apart instead. */
+.again-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;
+}
+.again-btn {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 6px; min-height: 68px; text-align: left; padding: 11px 12px;
+  background: rgba(148, 163, 184, 0.09); border-color: var(--border);
+  font-size: 0.92rem;
+}
+.again-btn:hover { background: rgba(34, 197, 94, 0.12); border-color: var(--accent-2); }
+.again-svc {
+  display: flex; align-items: center; gap: 7px; font-weight: 650; line-height: 1.2;
+  min-width: 0; overflow-wrap: anywhere;
+}
+.again-btn .client-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== Job photos ===== */
 .job-photos { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -361,6 +378,13 @@ textarea { resize: vertical; }
 .swatch-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .swatch { width: 22px; height: 22px; border-radius: 6px; border: 2px solid transparent; cursor: pointer; }
 .swatch.sel { border-color: #fff; }
+/* Wider than a service swatch and showing a letter, because a client swatch is
+   a background/text PAIR — the text colour is half of what you're choosing. */
+.client-swatch {
+  width: 30px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; font-weight: 700; background: rgba(148, 163, 184, 0.16); color: var(--text-dim);
+}
+.client-swatches { gap: 5px; }
 
 /* ===== Invoice builder ===== */
 .candidate { padding: 2px 0; }
@@ -596,6 +620,13 @@ textarea { resize: vertical; }
 .custom-range { margin-top: 10px; }
 .custom-range .field { flex: 0 0 150px; }
 .range-caption { margin-top: 8px; }
+
+/* Metric + duration switches sit side by side above the report. */
+.toggle-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.duration-toggle button { font-variant-numeric: tabular-nums; }
+/* Sits beside the duration inputs and stays its own width — a full-bleed pill
+   pair reads like the primary action on the form, which it very much isn't. */
+.format-field { flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px; }
 
 .metric-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
 .metric-toggle button {
@@ -1044,10 +1075,6 @@ textarea { resize: vertical; }
       "go  go";
   }
 }
-
-/* Keep the resume button on one line — a long "Service · Client" label used to
-   wrap and drag the colour dot away from the text it belongs to. */
-.again-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 @media (max-width: 860px) {
   /* Toggl's favourites bar is a swipeable strip, and for good reason: wrapped
