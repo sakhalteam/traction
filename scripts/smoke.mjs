@@ -301,6 +301,66 @@ const pillBg = await pill.evaluate(el => getComputedStyle(el).backgroundColor)
 check('The pill actually wears it in the time log',
   pillBg.replace(/\s/g, '') === 'rgba(234,179,8,0.42)', `computed ${pillBg}`)
 
+// ---- 12. Structured client names ---------------------------------------
+await page.locator('.tab', { hasText: 'Clients' }).click()
+await page.waitForTimeout(500)
+await page.locator('.client-card', { hasText: 'The Steins' }).locator('.icon-btn').click()
+await page.waitForTimeout(400)
+const cEditor = page.locator('.client-editor')
+check('A legacy name is split into the fields as a starting point',
+  (await cEditor.locator('input').nth(0).inputValue()) === 'The'
+    && (await cEditor.locator('input').nth(1).inputValue()) === 'Steins',
+  `got "${await cEditor.locator('input').nth(0).inputValue()}" / "${await cEditor.locator('input').nth(1).inputValue()}"`)
+
+// Turn them into a couple: Sylvia & Craig Gardner.
+await cEditor.locator('input').nth(0).fill('Sylvia')
+await cEditor.locator('input').nth(1).fill('Gardner')
+await cEditor.locator('button', { hasText: '+ Add another person' }).click()
+await page.waitForTimeout(300)
+await cEditor.locator('.person-row').nth(1).locator('input').nth(0).fill('Craig')
+await cEditor.locator('.person-row').nth(1).locator('input').nth(1).fill('Gardner')
+await page.waitForTimeout(300)
+await cEditor.locator('button', { hasText: 'Save' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const couple = s.clients.find(c => c.id === 'c1')
+check('Both people are stored, not one head of household',
+  couple?.people?.length === 2 && couple.people[1].first === 'Craig', JSON.stringify(couple?.people))
+check('A shared surname collapses on the card',
+  (await page.locator('.client-card', { hasText: 'Gardner' }).locator('.client-name-pill').innerText())
+    .trim() === 'Sylvia & Craig Gardner',
+  await page.locator('.client-card', { hasText: 'Gardner' }).locator('.client-name-pill').innerText())
+check('The legacy name field mirrors the derived full name',
+  couple?.name === 'Sylvia & Craig Gardner', `got ${couple?.name}`)
+check('The card shows the invoice code',
+  (await page.locator('.client-card', { hasText: 'Gardner' }).locator('.inv-code-tag').innerText()) === 'GARDNER',
+  await page.locator('.client-card', { hasText: 'Gardner' }).locator('.inv-code-tag').innerText())
+
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(500)
+check('Pills use the short name, not the full one',
+  (await page.locator('.entry-row', { hasText: 'front strip' }).locator('.client-tag').first().innerText()) === 'Gardner',
+  await page.locator('.entry-row', { hasText: 'front strip' }).locator('.client-tag').first().innerText())
+
+// ---- 13. A business-only client ----------------------------------------
+await page.locator('.tab', { hasText: 'Clients' }).click()
+await page.waitForTimeout(400)
+await page.locator('.quick-row input').fill('placeholder')
+await page.locator('button', { hasText: 'Add client' }).click()
+await page.waitForTimeout(400)
+await page.locator('.client-card', { hasText: 'placeholder' }).locator('.icon-btn').click()
+await page.waitForTimeout(400)
+await cEditor.locator('.person-row').nth(0).locator('input').nth(0).fill('')
+await cEditor.locator('.person-row').nth(0).locator('input').nth(1).fill('')
+await cEditor.locator('input[placeholder="e.g. FARTTOWN PIZZAS"]').fill('FARTTOWN PIZZAS')
+await page.waitForTimeout(300)
+await cEditor.locator('button', { hasText: 'Save' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const biz = s.clients.find(c => c.business === 'FARTTOWN PIZZAS')
+check('A business with no person is a valid client', !!biz && biz.name === 'FARTTOWN PIZZAS',
+  JSON.stringify({ name: biz?.name, business: biz?.business }))
+
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await browser.close()

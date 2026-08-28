@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, lineAmount, todayISO,
-  agingOf, AGING_LABELS, nextInvoiceNumber, type AgingBucket,
+  agingOf, AGING_LABELS, nextInvoiceNumber, clientFullName, type AgingBucket,
 } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 import { Picker } from './Picker'
@@ -136,7 +136,7 @@ function InvoiceBuilder({
           label="Client"
           value={clientId || null}
           placeholder="Search clients…"
-          options={clients.map(c => ({ id: c.id, label: c.name, hint: c.phone || undefined }))}
+          options={clients.map(c => ({ id: c.id, label: clientFullName(c), hint: c.phone || undefined }))}
           onChange={id => resetClient(id ?? '')}
         />
         <label className="field"><span>From (optional)</span>
@@ -304,7 +304,7 @@ function InvoiceList({ state, onOpen }: { state: TractionState; onOpen: (id: str
           return (
             <li key={inv.id} className="invoice-row" onClick={() => onOpen(inv.id)}>
               <span className="inv-num">{inv.number}</span>
-              <span className="inv-client">{client?.name ?? 'Unknown'}</span>
+              <span className="inv-client">{clientFullName(client)}</span>
               <span className="dim inv-date">{formatDate(inv.issuedDate)}</span>
               {age && age.daysOverdue > 0
                 ? <span className="status-pill overdue" title={`Due ${formatDate(inv.dueDate!)}`}>

@@ -7,10 +7,36 @@
  */
 export type DurationStyle = 'hm' | 'decimal'
 
-/** A person/household you do work for. */
+/** One named human attached to a client. Either half may be blank. */
+export interface Person {
+  first: string
+  last: string
+}
+
+/** A person/household/business you do work for. */
 export interface Client {
   id: string
+  /**
+   * LEGACY single-line name, and still the display name for any client that
+   * hasn't been given structured ones. Never read directly — go through
+   * `clientFullName` / `clientShortName`, which fall back to it. Rewritten to
+   * the derived full name whenever a structured client is saved, so a backup
+   * file stays readable.
+   */
   name: string
+  /**
+   * The humans this client is. A list, not one first/last pair, because a
+   * client is often genuinely two people — "Sylvia and Craig Gardner" is not a
+   * head of household with an appendage. A shared surname collapses on
+   * display; differing ones spell out in full.
+   *
+   * Absent on clients saved before structured names; nothing is auto-migrated,
+   * since guessing wrong would silently rewrite real names.
+   */
+  people?: Person[]
+  /** Business name. Valid on its own ("FARTTOWN PIZZAS") or alongside people,
+   *  in which case the business is billed and the person is the attention line. */
+  business?: string
   email: string
   phone: string
   address: string

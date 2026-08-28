@@ -24,3 +24,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Toggl exports — real client names, hours and an email address in every row.
+# They're inputs to scripts/toggl-to-traction.py, not something to publish.
+Toggl_*.csv
+*_time_entries_*.csv

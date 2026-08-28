@@ -149,16 +149,32 @@ Track costs the moment you incur them — the mirror image of time entries, on t
 
 ### Clients
 
-- **Add** a client with just a name (e.g. *Larry & Linda*); fill in phone, email,
-  address, and notes by editing (✎).
+- **Add** a client with just a name (e.g. *Larry & Linda*); fill in the rest by
+  editing (✎).
+- **Names are First / Last / Business, and any of them alone is enough.** A business
+  with no person (*FARTTOWN PIZZAS*), a first name with no surname (*Cathy*), or both —
+  in which case the business is billed and the person becomes the invoice's *Attn:* line.
+- **Couples get "+ Add another person"**, because a client often genuinely *is* two
+  people. A shared surname collapses — Sylvia + Craig, both Gardner, read as
+  **Sylvia & Craig Gardner**. Different surnames spell out: **Dana Vasquez & Kim
+  Oyelaran**. They sort under the first surname, not the first first name.
+- **Two names are derived from that**, and the editor shows you both as you type:
+  the **full** name for invoices, CSVs and client cards, and a **short** one for pills,
+  Again-grid buttons and chart legends (the surname, or the business, or the first names).
+  Without it, "Sylvia & Craig Gardner" would swallow a pill in the time log.
+- **Existing clients are left alone.** Nothing is auto-split — opening one in the editor
+  pre-fills the fields from its old single-line name for you to correct, and only saving
+  applies it.
 - **Pill colour:** each client can wear one of **20 colours** (ten hues, each in a light
   and a deep fill) wherever their name appears — the time log, expenses, the running bar,
   the Again grid. Every swatch is named, and the editor previews the actual pill with the
   colour's name beside it, so you never have to identify one by looking at it. Blank =
   the default neutral pill.
-- **Invoice code:** the prefix on this client's invoice numbers. Defaults to their name
-  with spaces and punctuation stripped, so *Larry & Linda* → `LARRYLINDA-20260825-01`.
-  Set your own when the name is unwieldy — *Seymour Suthersby Smithson* → `SEYSUTH`.
+- **Invoice code:** the prefix on this client's invoice numbers. Defaults to their
+  **short** name with punctuation stripped, so Sylvia & Craig Gardner get
+  `GARDNER-20260827-01` rather than `SYLVIACRAIGGARDNER-…`. Set your own when it's still
+  unwieldy — *Seymour Suthersby Smithson* → `SEYSUTH`. Both the code and the client's
+  colour show on their card in the Clients list.
 - **Custom rates for this client:** inside the editor, expand *"Custom rates for this
   client"* to set a per-service rate that overrides the default **for this client only**.
   Example: everyone pays $30/hr for Deck cleanup, but Larry pays $35 — set it here and
@@ -375,6 +391,11 @@ It's on an invoice (look for the *invoiced* tag). Delete that invoice to unlock 
 Open the entry (✎) and set the real **End** time — that stops it there. Or fix the
 hours/minutes if it's already stopped. (traction also nudges you after 8 hours so this
 is rare.)
+
+**Q: My client is a couple — whose name do I put?**
+Both. Fill in the first person, tap **+ Add another person**, fill in the second. If they
+share a surname it reads as *Sylvia & Craig Gardner*; if they don't, both names show in
+full. The client is both people, not a head of household with an appendage.
 
 **Q: Can I see hours as 4.5 instead of 4h 30m?**
 Yes — **Show hours as** in Settings, or the same toggle in Reports and on the manual

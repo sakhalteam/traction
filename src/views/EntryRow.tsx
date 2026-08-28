@@ -3,7 +3,7 @@ import type { TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDuration, formatMoney, liveSeconds, lineAmount,
   toLocalInput, fromLocalInput, dateFromEpoch, validateRange, entrySpan, formatTimeOfDay,
-  paymentStateOf, clientColor,
+  paymentStateOf, clientColor, clientFullName, clientShortName,
 } from '../store'
 import { useNow } from '../useNow'
 import { ClientLabel } from '../Chrome'
@@ -33,7 +33,7 @@ export function EntryRow({
   const client = entry.clientId
     ? (state.clients.find(c => c.id === entry.clientId) ?? null)
     : null
-  const clientName = entry.clientId ? (client?.name ?? 'Unknown') : null
+  const clientName = entry.clientId ? clientShortName(client) : null
   const durationStyle = state.settings.durationFormat ?? 'hm'
   const secs = liveSeconds(entry, now)
   const invoiced = !!entry.invoiceId
@@ -260,7 +260,7 @@ function EntryEditor({
           value={clientId || null}
           noneLabel="General (no client)"
           placeholder="Search clients…"
-          options={state.clients.map(c => ({ id: c.id, label: c.name }))}
+          options={state.clients.map(c => ({ id: c.id, label: clientFullName(c) }))}
           onChange={id => setClientId(id ?? '')}
         />
         <label className="field narrow-field">

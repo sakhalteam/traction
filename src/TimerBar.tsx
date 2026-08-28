@@ -1,5 +1,5 @@
 import type { TimeEntry, TractionState } from './types'
-import { formatClock, formatMoney, liveSeconds, lineAmount } from './store'
+import { formatClock, formatMoney, liveSeconds, lineAmount, clientShortName } from './store'
 
 /**
  * The running timer, pinned to the bottom of every screen.
@@ -25,7 +25,7 @@ export function TimerBar({
   const secs = liveSeconds(entry, now)
   const service = state.services.find(s => s.id === entry.serviceId)
   const client = entry.clientId
-    ? (state.clients.find(c => c.id === entry.clientId)?.name ?? 'Unknown')
+    ? clientShortName(state.clients.find(c => c.id === entry.clientId))
     : 'General'
 
   return (

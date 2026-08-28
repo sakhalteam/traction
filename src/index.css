@@ -355,8 +355,16 @@ textarea { resize: vertical; }
 
 /* ===== Clients ===== */
 .client-card { display: flex; flex-direction: column; gap: 8px; }
-.client-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.client-head h3 { margin: 0; }
+.client-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.client-head h3 { margin: 0; min-width: 0; }
+/* The heading IS the pill, so it has to carry heading weight rather than the
+   0.75rem a pill wears inline in the time log. */
+.client-name-pill .client-tag {
+  font-size: 1rem; font-weight: 650; padding: 4px 12px; display: inline-block;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.client-codeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: -2px; }
+.client-codeline .inv-code-tag { margin-right: 0; font-size: 0.72rem; }
 /* The auto margin (not justify-content) is what keeps this hugging the name
    while the edit button stays pinned right. */
 .inv-code-tag {
@@ -368,6 +376,15 @@ textarea { resize: vertical; }
 .client-unbilled { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
 .big-money { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .client-editor { display: flex; flex-direction: column; gap: 8px; }
+/* A grid, not the usual flex .field-row: the mobile rule below forces every
+   flex field to a full-width line, and First/Last are short enough to sit side
+   by side even on a phone. Grid children ignore that flex declaration. */
+.person-row {
+  display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px;
+  align-items: end; margin-bottom: 8px;
+}
+.person-drop { margin-bottom: 4px; }
+.add-person { align-self: flex-start; margin-bottom: 4px; }
 
 /* ===== Services ===== */
 .service-row { display: flex; align-items: center; gap: 12px; padding: 8px 4px; }

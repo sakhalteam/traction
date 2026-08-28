@@ -4,6 +4,7 @@ import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
   paymentStateOf, rollupPaymentState, isMixedPayment, daysBetween, jobKey, isFavorite,
   clientColor, epochFromDateTime, toTimeInput, validateRange, dateFromEpoch,
+  clientFullName, clientShortName,
   type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
@@ -81,7 +82,7 @@ export function TimerView({
   const resolvedRate = resolveRate(selectedService, selectedClient)
   const effectiveRate = rate !== '' ? Number(rate) : resolvedRate
 
-  const clientName = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? null) : null
+  const clientName = (id: string | null) => id ? clientShortName(state.clients.find(c => c.id === id)) : null
   const durationStyle = state.settings.durationFormat ?? 'hm'
 
   // Full history, newest day first, grouped by date — the Toggl home list.
@@ -133,7 +134,7 @@ export function TimerView({
     return [...byClient.entries()]
       .map(([id, v]) => ({
         id, ...v,
-        name: state.clients.find(c => c.id === id)?.name ?? 'Unknown',
+        name: clientFullName(state.clients.find(c => c.id === id)),
         age: daysBetween(v.oldest, today),
       }))
       .filter(c => c.age >= NUDGE_AFTER_DAYS)
@@ -163,9 +164,9 @@ export function TimerView({
       return {
         key: jobKey(sid, cid), serviceId: sid, clientId: cid, color: svc.color,
         serviceName: svc.name,
-        clientName: client?.name ?? null,
+        clientName: client ? clientShortName(client) : null,
         clientColor: clientColor(client),
-        label: client ? `${svc.name} · ${client.name}` : svc.name,
+        label: client ? `${svc.name} · ${clientFullName(client)}` : svc.name,
       }
     }
 
@@ -307,7 +308,7 @@ export function TimerView({
               placeholder="Search clients…"
               createLabel="New client"
               noneLabel="General (no client)"
-              options={clients.map(c => ({ id: c.id, label: c.name, hint: c.phone || undefined }))}
+              options={clients.map(c => ({ id: c.id, label: clientFullName(c), hint: c.phone || undefined }))}
               onChange={id => setClientId(id ?? '')}
               onCreate={name => onAddClient(name).id}
             />
@@ -415,7 +416,7 @@ export function TimerView({
             placeholder="Search clients…"
             options={[
               { id: 'general', label: 'General (no client)' },
-              ...state.clients.map(c => ({ id: c.id, label: c.name })),
+              ...state.clients.map(c => ({ id: c.id, label: clientFullName(c) })),
             ]}
             onChange={id => setFilterClient(id ?? '')}
           />
@@ -572,7 +573,7 @@ function ManualEntryForm({
           value={clientId || null}
           noneLabel="General (no client)"
           placeholder="Search clients…"
-          options={state.clients.map(c => ({ id: c.id, label: c.name }))}
+          options={state.clients.map(c => ({ id: c.id, label: clientFullName(c) }))}
           onChange={id => setClientId(id ?? '')}
         />
         <label className="field"><span>Date</span>

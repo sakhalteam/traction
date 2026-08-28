@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { DurationStyle, TractionState } from '../types'
 import {
   decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, lineAmount, liveSeconds,
-  monthKey, periodLabel, todayISO, weekStartISO,
+  monthKey, periodLabel, todayISO, weekStartISO, clientShortName,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
 import { DurationToggle } from './DurationFields'
@@ -150,7 +150,7 @@ export function ReportsView({
     const all = [...sums.entries()]
       .map(([key, value]) => ({
         key,
-        label: key === 'general' ? 'General' : (state.clients.find(c => c.id === key)?.name ?? 'Unknown'),
+        label: key === 'general' ? 'General' : clientShortName(state.clients.find(c => c.id === key)),
         value,
         color: key === 'general' ? GENERAL_COLOR : (clientColor.get(key) ?? OTHER_COLOR),
       }))

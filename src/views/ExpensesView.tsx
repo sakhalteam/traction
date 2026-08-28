@@ -1,6 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import type { Expense, TractionState } from '../types'
-import { EXPENSE_CATEGORIES, clientColor, formatDate, formatMoney, makeExpense, todayISO } from '../store'
+import {
+  EXPENSE_CATEGORIES, clientColor, clientFullName, clientShortName,
+  formatDate, formatMoney, makeExpense, todayISO,
+} from '../store'
 import { ClientLabel } from '../Chrome'
 import { supabase } from '../supabaseClient'
 import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../receipts'
@@ -127,7 +130,7 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
           value={clientId || null}
           noneLabel={billable ? 'General (no client)' : 'None'}
           placeholder="Search clients…"
-          options={clients.map(c => ({ id: c.id, label: c.name }))}
+          options={clients.map(c => ({ id: c.id, label: clientFullName(c) }))}
           onChange={id => setClientId(id ?? '')}
         />
         <label className="field"><span>Note</span>
@@ -154,7 +157,7 @@ function ExpenseRow({
   const [editing, setEditing] = useState(false)
   const cur = state.settings.currency
   const client = expense.clientId ? (state.clients.find(c => c.id === expense.clientId) ?? null) : null
-  const clientName = expense.clientId ? (client?.name ?? 'Unknown') : null
+  const clientName = expense.clientId ? clientShortName(client) : null
   const invoiced = !!expense.invoiceId
   const invNum = invoiced ? state.invoices.find(i => i.id === expense.invoiceId)?.number : null
 
@@ -324,7 +327,7 @@ function ExpenseEditor({
           value={x.clientId}
           noneLabel={x.billable ? 'General (no client)' : 'None'}
           placeholder="Search clients…"
-          options={state.clients.map(c => ({ id: c.id, label: c.name }))}
+          options={state.clients.map(c => ({ id: c.id, label: clientFullName(c) }))}
           onChange={id => set({ clientId: id })}
         />
         <label className="field"><span>Note</span>

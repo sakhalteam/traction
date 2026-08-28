@@ -8,6 +8,7 @@ import type {
   Expense,
   Favorite,
   Invoice,
+  Person,
   Service,
   Settings,
   TimeEntry,
@@ -281,6 +282,121 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
   return { days, totalSeconds, total: Math.round(total * 100) / 100 }
 }
 
+// ---- Client names --------------------------------------------------------
+
+/** The fields every name-rendering helper needs. */
+export type NamedClient = Pick<Client, 'name' | 'people' | 'business'>
+
+/** Trim, and drop the people who are entirely blank. */
+function realPeople(client: Pick<Client, 'people'> | null | undefined): Person[] {
+  return (client?.people ?? [])
+    .map(p => ({ first: (p.first ?? '').trim(), last: (p.last ?? '').trim() }))
+    .filter(p => p.first || p.last)
+}
+
+function businessOf(client: Pick<Client, 'business'> | null | undefined): string {
+  return (client?.business ?? '').trim()
+}
+
+/**
+ * Render a list of people as one name.
+ *
+ * A shared surname collapses ("Sylvia & Craig Gardner") because that is how the
+ * household is actually addressed; differing surnames stay spelled out in full
+ * ("Dana Vasquez & Kim Oyelaran") because collapsing those would invent a name
+ * nobody has.
+ */
+export function formatPeople(people: Person[]): string {
+  if (people.length === 0) return ''
+  if (people.length === 1) return [people[0].first, people[0].last].filter(Boolean).join(' ')
+
+  const lasts = people.map(p => p.last).filter(Boolean)
+  const sharesOneSurname = lasts.length === people.length && new Set(lasts).size === 1
+  if (sharesOneSurname) {
+    const firsts = people.map(p => p.first).filter(Boolean).join(' & ')
+    return `${firsts} ${lasts[0]}`.trim()
+  }
+  return people.map(p => [p.first, p.last].filter(Boolean).join(' ')).join(' & ')
+}
+
+/**
+ * The client's name in full — what belongs on an invoice, a CSV or a card.
+ * When a client is a business WITH a named contact, the business is the billed
+ * party; the person belongs on the attention line (see `clientAttn`).
+ */
+export function clientFullName(client: NamedClient | null | undefined): string {
+  const business = businessOf(client)
+  if (business) return business
+  const people = formatPeople(realPeople(client))
+  if (people) return people
+  return (client?.name ?? '').trim() || 'Unknown client'
+}
+
+/** The person to address a business's invoice to, or '' when there isn't one. */
+export function clientAttn(
+  client: Pick<Client, 'people' | 'business'> | null | undefined,
+): string {
+  if (!businessOf(client)) return ''
+  return formatPeople(realPeople(client))
+}
+
+/**
+ * The short label a pill, chip or chart legend can hold.
+ *
+ * Surname-first for people, because that is the household: "the Gardners" is
+ * one word where "Sylvia & Craig Gardner" would blow out a pill in the time
+ * log. Falls back to first names when there is no surname to use.
+ */
+export function clientShortName(client: NamedClient | null | undefined): string {
+  const business = businessOf(client)
+  if (business) return business
+
+  const people = realPeople(client)
+  if (people.length === 0) return (client?.name ?? '').trim() || 'Unknown client'
+
+  const lasts = people.map(p => p.last).filter(Boolean)
+  if (lasts.length > 0 && new Set(lasts).size === 1) return lasts[0]
+  if (people.length === 1) return people[0].last || people[0].first
+  // Two households under one client: first names carry it more clearly than a
+  // pair of surnames would.
+  return people.map(p => p.first || p.last).join(' & ')
+}
+
+/** What the Clients list alphabetises on: business, else surname, else first. */
+export function clientSortKey(client: NamedClient): string {
+  const business = businessOf(client)
+  if (business) return business.toLocaleLowerCase()
+  const people = realPeople(client)
+  if (people.length === 0) return (client.name ?? '').trim().toLocaleLowerCase()
+  return (people[0].last || people[0].first).toLocaleLowerCase()
+}
+
+/** True once a client has been given structured names, i.e. left the legacy field. */
+export function hasStructuredName(
+  client: Pick<Client, 'people' | 'business'> | null | undefined,
+): boolean {
+  return !!businessOf(client) || realPeople(client).length > 0
+}
+
+/**
+ * Best-effort split of a legacy one-line name, to seed the editor's fields.
+ *
+ * Only ever a starting point shown in a form the user can correct before
+ * saving — deliberately not run over saved data, because a wrong guess applied
+ * silently is how "Larry & Linda O'Neil" quietly becomes someone's first name.
+ * Splits on "&"/"and" first so couples land as two people, then treats the last
+ * token of each chunk as a surname.
+ */
+export function splitLegacyName(name: string): Person[] {
+  const chunks = name.trim().split(/\s+(?:&|and)\s+/i).map(c => c.trim()).filter(Boolean)
+  if (chunks.length === 0) return [{ first: '', last: '' }]
+  return chunks.map(chunk => {
+    const tokens = chunk.split(/\s+/)
+    if (tokens.length === 1) return { first: tokens[0], last: '' }
+    return { first: tokens.slice(0, -1).join(' '), last: tokens[tokens.length - 1] }
+  })
+}
+
 // ---- Client colours ------------------------------------------------------
 
 /** One client pill's look: a tinted fill and the text colour that sits on it. */
@@ -353,13 +469,14 @@ export function normalizeInvoiceCode(raw: string): string {
  * default, and anyone with an unwieldy one gets a hand-picked code instead.
  */
 export function clientInvoiceCode(
-  client: Pick<Client, 'name' | 'invoiceCode'> | null | undefined,
+  client: (NamedClient & Pick<Client, 'invoiceCode'>) | null | undefined,
 ): string {
   const raw = typeof client?.invoiceCode === 'string' ? client.invoiceCode : ''
   const custom = normalizeInvoiceCode(raw)
   if (custom) return custom
+  // The SHORT name, so a couple gets GARDNER rather than SYLVIACRAIGGARDNER.
   // A client named only in emoji/punctuation would normalize to nothing.
-  return normalizeInvoiceCode(client?.name ?? '') || 'CLIENT'
+  return normalizeInvoiceCode(clientShortName(client)) || 'CLIENT'
 }
 
 /** 'YYYY-MM-DD' → 'YYYYMMDD', the date form invoice numbers use. */
@@ -379,7 +496,7 @@ export function compactDate(iso: string): string {
  */
 export function nextInvoiceNumber(
   invoices: Pick<Invoice, 'number'>[],
-  client: Pick<Client, 'name' | 'invoiceCode'> | null | undefined,
+  client: (NamedClient & Pick<Client, 'invoiceCode'>) | null | undefined,
   issuedDate: string,
 ): string {
   const prefix = `${clientInvoiceCode(client)}-${compactDate(issuedDate)}-`
@@ -576,6 +693,14 @@ export function hydrateState(raw: unknown): TractionState {
   const clients = (Array.isArray(r.clients) ? r.clients : []).map((c): Client => ({
     ...c,
     rates: c.rates && typeof c.rates === 'object' ? c.rates : {},
+    // Structured names are opt-in; a non-array here would crash every render
+    // that maps over them. Legacy clients simply have none and fall back.
+    ...(Array.isArray(c.people)
+      ? { people: c.people.filter(x => x && typeof x === 'object').map(x => ({
+          first: typeof x.first === 'string' ? x.first : '',
+          last: typeof x.last === 'string' ? x.last : '',
+        })) }
+      : {}),
   }))
   // Legacy entries/expenses predate wall-clock times and receipt attachments.
   // Default them to null rather than inventing a start time we don't know.
@@ -827,7 +952,7 @@ function csvCell(value: string | number): string {
 
 /** All expenses as a CSV (one row per expense) for taxes / accountant. */
 export function expensesToCSV(state: TractionState): string {
-  const cli = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? 'Unknown') : ''
+  const cli = (id: string | null) => id ? clientFullName(state.clients.find(c => c.id === id)) : ''
   const invNum = (id: string | null) => id ? (state.invoices.find(i => i.id === id)?.number ?? '') : ''
   const header = ['Date', 'Category', 'Label', 'Amount', 'Billable', 'Client', 'Invoice', 'Note']
   const rows = [...state.expenses]
@@ -842,7 +967,7 @@ export function expensesToCSV(state: TractionState): string {
 /** All time entries as a CSV (one row per entry) for taxes / accountant. */
 export function entriesToCSV(state: TractionState): string {
   const svc = (id: string) => state.services.find(s => s.id === id)?.name ?? 'Unknown'
-  const cli = (id: string | null) => id ? (state.clients.find(c => c.id === id)?.name ?? 'Unknown') : 'General'
+  const cli = (id: string | null) => id ? clientFullName(state.clients.find(c => c.id === id)) : 'General'
   const invNum = (id: string | null) => id ? (state.invoices.find(i => i.id === id)?.number ?? '') : ''
   const header = ['Date', 'Client', 'Service', 'Note', 'Hours', 'Rate', 'Amount', 'Invoice']
   const rows = [...state.entries]

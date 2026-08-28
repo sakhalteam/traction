@@ -1,6 +1,9 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
-import { buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney } from '../store'
+import {
+  buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney,
+  clientAttn, clientFullName,
+} from '../store'
 import { ReceiptLink } from './ReceiptLink'
 import { JobPhotos } from './JobPhotos'
 import { LogoImage } from './LogoImage'
@@ -24,6 +27,7 @@ export function InvoiceDetail({
   const client = state.clients.find(c => c.id === invoice.clientId)
   const settings = state.settings
   const durationStyle = settings.durationFormat ?? 'hm'
+  const attn = clientAttn(client)
   const locked = invoice.status === 'paid'
 
   // Prefer the FROZEN snapshot; legacy invoices (pre-snapshot) re-derive live.
@@ -78,7 +82,10 @@ export function InvoiceDetail({
 
         <div className="invoice-billto">
           <span className="label">Bill to</span>
-          <div className="billto-name">{client?.name ?? 'Unknown client'}</div>
+          <div className="billto-name">{clientFullName(client)}</div>
+          {/* A business is the billed party; the person on it is who opens the
+              envelope, so they get their own line rather than the name line. */}
+          {attn && <div className="dim">Attn: {attn}</div>}
           {client?.address && <div className="dim">{client.address}</div>}
           {(client?.phone || client?.email) && (
             <div className="dim">{[client?.phone, client?.email].filter(Boolean).join(' · ')}</div>

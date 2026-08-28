@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import type { Client, Service, TractionState } from '../types'
+import type { Client, Person, Service, TractionState } from '../types'
 import {
   formatDuration, formatMoney, liveSeconds, lineAmount,
   clientInvoiceCode, compactDate, normalizeInvoiceCode, todayISO, INVOICE_SEQ_PAD,
   CLIENT_COLORS, clientColor,
+  clientFullName, clientShortName, clientSortKey, hasStructuredName, splitLegacyName,
 } from '../store'
 import { ClientLabel } from '../Chrome'
 
@@ -19,7 +20,9 @@ export function ClientsView({
   const [name, setName] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  const clients = [...state.clients].sort((a, b) => a.name.localeCompare(b.name))
+  // Alphabetised on surname / business, not on whatever the full name starts
+  // with — "Sylvia & Craig Gardner" belongs under G.
+  const clients = [...state.clients].sort((a, b) => clientSortKey(a).localeCompare(clientSortKey(b)))
   const durationStyle = state.settings.durationFormat ?? 'hm'
 
   function unbilled(clientId: string) {
@@ -68,14 +71,20 @@ export function ClientsView({
                 ) : (
                   <>
                     <div className="client-head">
-                      <h3>{c.name}</h3>
-                      {c.colorId && <ClientLabel name={c.name} color={clientColor(c)} />}
-                      {/* Only shown when it's been overridden — the default is
-                          just the name, and echoing that back is noise. */}
-                      {c.invoiceCode && (
-                        <span className="dim tiny inv-code-tag" title="Invoice code">{clientInvoiceCode(c)}</span>
-                      )}
+                      {/* The name renders once, as the pill — the card used to
+                          show a plain heading AND a duplicate coloured copy. */}
+                      <h3 className="client-name-pill">
+                        <ClientLabel name={clientFullName(c)} color={clientColor(c)} />
+                      </h3>
                       <button className="icon-btn" title="Edit" onClick={() => setEditingId(c.id)}>✎</button>
+                    </div>
+                    <div className="client-codeline">
+                      <span className="inv-code-tag" title="Invoice-number prefix">{clientInvoiceCode(c)}</span>
+                      {clientShortName(c) !== clientFullName(c) && (
+                        <span className="dim tiny" title="How this client reads on pills and chips">
+                          shows as “{clientShortName(c)}”
+                        </span>
+                      )}
                     </div>
                     {(c.email || c.phone) && (
                       <div className="client-contact">{[c.phone, c.email].filter(Boolean).join(' · ')}</div>
@@ -112,10 +121,35 @@ function ClientEditor({
   onCancel: () => void
   onDelete: () => void
 }) {
-  const [c, setC] = useState(client)
+  /**
+   * A client that never got structured names opens with its old single-line
+   * name split into the fields, as a starting point to correct. The split is
+   * only ever shown in this form — running it over saved data would silently
+   * turn "Larry & Linda O'Neil" into somebody's first name.
+   */
+  const [seeded] = useState(() => !hasStructuredName(client))
+  const [c, setC] = useState<Client>(() => hasStructuredName(client)
+    ? client
+    : { ...client, people: splitLegacyName(client.name), business: '' })
   const [confirmDel, setConfirmDel] = useState(false)
   const [showRates, setShowRates] = useState(false)
   const set = (patch: Partial<Client>) => setC(prev => ({ ...prev, ...patch }))
+
+  const people = c.people ?? []
+  const setPerson = (i: number, patch: Partial<Person>) => setC(prev => ({
+    ...prev,
+    people: (prev.people ?? []).map((p, n) => n === i ? { ...p, ...patch } : p),
+  }))
+  const addPerson = () => setC(prev => ({ ...prev, people: [...(prev.people ?? []), { first: '', last: '' }] }))
+  const removePerson = (i: number) => setC(prev => ({
+    ...prev,
+    people: (prev.people ?? []).filter((_, n) => n !== i),
+  }))
+
+  const named = hasStructuredName(c)
+  // `name` is a denormalised mirror for legacy readers and backup files; the
+  // structured fields are the truth, so it's rewritten from them on every save.
+  const save = () => onSave({ ...c, name: clientFullName(c) })
 
   const setRate = (serviceId: string, value: string) => {
     setC(prev => {
@@ -134,13 +168,39 @@ function ClientEditor({
 
   return (
     <div className="client-editor">
-      <label className="field"><span>Name</span>
-        <input value={c.name} onChange={e => set({ name: e.target.value })} /></label>
+      {people.map((p, i) => (
+        <div className="field-row person-row" key={i}>
+          <label className="field"><span>{i === 0 ? 'First name' : 'And — first name'}</span>
+            <input value={p.first} onChange={e => setPerson(i, { first: e.target.value })} /></label>
+          <label className="field"><span>Last name</span>
+            <input value={p.last} onChange={e => setPerson(i, { last: e.target.value })} /></label>
+          {people.length > 1 && (
+            <button type="button" className="icon-btn danger person-drop"
+              title="Remove this person" onClick={() => removePerson(i)}>✕</button>
+          )}
+        </div>
+      ))}
+      {/* Hidden behind a tap: a client is usually one person, and two empty
+          boxes on every card would imply otherwise. */}
+      <button type="button" className="btn ghost tiny add-person" onClick={addPerson}>
+        + Add another person
+      </button>
+      <label className="field"><span>Business</span>
+        <input value={c.business ?? ''} placeholder="e.g. FARTTOWN PIZZAS"
+          onChange={e => set({ business: e.target.value })} /></label>
+      <p className="hint tiny">
+        {named
+          ? <>Reads as <strong>{clientFullName(c)}</strong>{clientShortName(c) !== clientFullName(c)
+              ? <> on invoices, <strong>{clientShortName(c)}</strong> on pills and chips.</>
+              : <> everywhere.</>}</>
+          : <>Fill in a name — a person, a business, or both.</>}
+        {seeded && <> Split from the old name “{client.name}”; fix anything it got wrong.</>}
+      </p>
       <label className="field"><span>Invoice code</span>
         <input
           value={c.invoiceCode ?? ''}
           maxLength={16}
-          placeholder={normalizeInvoiceCode(c.name)}
+          placeholder={normalizeInvoiceCode(clientShortName(c))}
           /* Normalised as you type so the field always shows the exact string
              that will appear on the invoice — no surprise at creation time. */
           onChange={e => set({ invoiceCode: normalizeInvoiceCode(e.target.value) })}
@@ -182,7 +242,7 @@ function ClientEditor({
           ))}
         </div>
         <p className="hint tiny">
-          <ClientLabel name={c.name || 'Client'} color={clientColor(c)} />
+          <ClientLabel name={named ? clientShortName(c) : 'Client'} color={clientColor(c)} />
           {' '}— how this client reads in the time log. {selectedColor?.label ?? 'Default'}.
         </p>
       </div>
@@ -216,7 +276,7 @@ function ClientEditor({
       )}
 
       <div className="editor-actions">
-        <button className="btn primary" onClick={() => onSave(c)}>Save</button>
+        <button className="btn primary" disabled={!named} onClick={save}>Save</button>
         <button className="btn ghost" onClick={onCancel}>Cancel</button>
         {confirmDel ? (
           <button className="btn danger" onClick={onDelete}>Really delete?</button>
