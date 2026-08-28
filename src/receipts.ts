@@ -19,6 +19,11 @@ const MAX_EDGE = 1600
  * PNG, which has no lossy setting to lean on — resolution is the only lever.
  */
 const LOGO_MAX_EDGE = 800
+/**
+ * Longest edge for a full-page invoice background. 1600 is ~190dpi across US
+ * Letter, which is past what the eye resolves in a watermark printed at 14%.
+ */
+const PAGE_MAX_EDGE = 1600
 /** JPEG quality for the downscaled copy. */
 const QUALITY = 0.82
 /** Reject anything above this BEFORE decoding, to avoid OOM on a huge file. */
@@ -168,6 +173,27 @@ export async function uploadLogo(supabase: SupabaseClient, file: File): Promise<
   // Swapping a JPEG logo for a PNG one (or back) writes a different object, so
   // clear the other extension rather than stranding it in the bucket forever.
   void deleteReceipt(supabase, `${user.id}/logo.${ext === 'png' ? 'jpg' : 'png'}`)
+  return path
+}
+
+/**
+ * Upload a replacement invoice background. Same deal as the logo — artwork,
+ * so transparency is kept — but allowed a bigger edge because this one covers
+ * a whole page rather than sitting in a 220px corner.
+ */
+export async function uploadInvoiceBg(supabase: SupabaseClient, file: File): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new ReceiptError('You need to be signed in to upload a background.')
+
+  const { blob, contentType, ext } = await downscale(file, {
+    maxEdge: PAGE_MAX_EDGE, preserveAlpha: true,
+  })
+  const path = `${user.id}/invoice-bg.${ext}`
+  const { error } = await supabase.storage
+    .from(RECEIPT_BUCKET)
+    .upload(path, blob, { contentType, upsert: true })
+  if (error) throw new ReceiptError(error.message)
+  void deleteReceipt(supabase, `${user.id}/invoice-bg.${ext === 'png' ? 'jpg' : 'png'}`)
   return path
 }
 

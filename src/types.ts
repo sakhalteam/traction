@@ -243,6 +243,12 @@ export interface Settings {
    * one JSON blob per save. Null when no logo has been uploaded.
    */
   logoPath?: string | null
+  /**
+   * A replacement invoice background, as an object path in the private
+   * `receipts` bucket. Null/absent uses the topographic default that ships
+   * with the app, so an invoice always has one — this only ever overrides it.
+   */
+  invoiceBgPath?: string | null
 }
 
 export interface TractionState {

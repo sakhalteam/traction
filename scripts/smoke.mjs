@@ -452,6 +452,40 @@ check('An opaque PNG is not needlessly upgraded', logo.opaqueType === 'image/jpe
 check('Receipts and job photos stay JPEG', logo.flatType === 'image/jpeg' && logo.flatExt === 'jpg',
   `${logo.flatType} / .${logo.flatExt}`)
 
+// ---- 17. Invoice sheet: watermark, icons, black ink --------------------
+await page.locator('.tab', { hasText: 'Invoices' }).click()
+await page.waitForTimeout(600)
+await page.locator('.invoice-row').first().click()
+await page.waitForTimeout(800)
+
+const bg = page.locator('.invoice-sheet .invoice-bg')
+check('Every invoice gets a background', await bg.count() === 1)
+check('With no upload it uses the bundled default',
+  /invoice-bg.*\.png/.test(await bg.getAttribute('src') ?? ''), await bg.getAttribute('src'))
+// An <img>, not a CSS background-image: browsers omit background images from
+// print unless the reader enables them, which an invoice cannot depend on.
+check('The watermark is a real <img> so it prints',
+  (await bg.evaluate(el => el.tagName)) === 'IMG')
+check('Line items carry a service glyph',
+  await page.locator('.invoice-table .svc-glyph').count() > 0,
+  `${await page.locator('.invoice-table .svc-glyph').count()} glyphs`)
+
+// Black ink on white paper — no theme colour may leak onto the printable sheet.
+const ink = await page.evaluate(() => {
+  const rgb = (el) => getComputedStyle(el).color
+  const sheet = document.querySelector('.invoice-sheet')
+  return {
+    paper: getComputedStyle(sheet).backgroundColor,
+    total: rgb(document.querySelector('.grand-total td')),
+    heading: rgb(document.querySelector('.invoice-meta h1')),
+    mono: getComputedStyle(sheet).fontFamily.toLowerCase(),
+  }
+})
+check('Paper is white', ink.paper === 'rgb(255, 255, 255)', ink.paper)
+check('The total is pure black', ink.total === 'rgb(0, 0, 0)', ink.total)
+check('The heading is pure black', ink.heading === 'rgb(0, 0, 0)', ink.heading)
+check('The sheet is monospaced', /mono/.test(ink.mono), ink.mono.slice(0, 40))
+
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await browser.close()

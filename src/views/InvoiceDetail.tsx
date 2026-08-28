@@ -7,6 +7,8 @@ import {
 import { ReceiptLink } from './ReceiptLink'
 import { JobPhotos } from './JobPhotos'
 import { LogoImage } from './LogoImage'
+import { InvoiceBackground } from './InvoiceBackground'
+import { ServiceIcon } from './ServiceIcon'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
@@ -62,6 +64,8 @@ export function InvoiceDetail({
       )}
 
       <div className="invoice-sheet">
+        <InvoiceBackground path={settings.invoiceBgPath} />
+        <div className="invoice-body">
         <div className="invoice-top">
           <div className="invoice-from">
             {settings.logoPath && <LogoImage path={settings.logoPath} className="invoice-logo" />}
@@ -70,12 +74,15 @@ export function InvoiceDetail({
             <div className="dim">{[settings.businessPhone, settings.businessEmail].filter(Boolean).join(' · ')}</div>
           </div>
           <div className="invoice-meta">
-            <h1>INVOICE</h1>
+            <h1>Invoice</h1>
             <div className="inv-numline">{invoice.number}</div>
-            <div className="dim">Issued {formatDate(invoice.issuedDate)}</div>
-            {invoice.dueDate && <div className="due-line">Due {formatDate(invoice.dueDate)}</div>}
-            <div className="dim">Period {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}</div>
-            {invoice.paidDate && <div className="dim">Paid {formatDate(invoice.paidDate)}</div>}
+            <dl className="meta-grid">
+              <dt>Issued</dt><dd>{formatDate(invoice.issuedDate)}</dd>
+              {invoice.dueDate && <><dt>Due</dt><dd className="due-line">{formatDate(invoice.dueDate)}</dd></>}
+              <dt>Period</dt>
+              <dd>{formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}</dd>
+              {invoice.paidDate && <><dt>Paid</dt><dd>{formatDate(invoice.paidDate)}</dd></>}
+            </dl>
             <div className={`status-pill ${invoice.status} big-status`}>{invoice.status}</div>
           </div>
         </div>
@@ -106,8 +113,13 @@ export function InvoiceDetail({
                   <tr key={`${day.date}-${line.serviceId}-${line.rate}`}>
                     <td>{i === 0 ? formatDate(day.date) : ''}</td>
                     <td>
-                      {line.serviceName}
-                      {line.notes.length > 0 && <span className="line-note"> — {line.notes.join(', ')}</span>}
+                      <span className="svc-cell">
+                        <ServiceIcon name={line.serviceName} className="svc-glyph" />
+                        <span>
+                          {line.serviceName}
+                          {line.notes.length > 0 && <span className="line-note"> — {line.notes.join(', ')}</span>}
+                        </span>
+                      </span>
                     </td>
                     <td className="num">{formatDuration(line.seconds, durationStyle)}</td>
                     <td className="num">{formatMoney(line.rate, settings.currency)}</td>
@@ -136,7 +148,7 @@ export function InvoiceDetail({
                 {invoice.expensesSnapshot.map(x => (
                   <tr key={x.id}>
                     <td />
-                    <td>{x.label || 'Charge'}</td>
+                    <td className="charge-label">{x.label || 'Charge'}</td>
                     <td className="num" /><td className="num" />
                     <td className="num">{formatMoney(x.amount || 0, settings.currency)}</td>
                   </tr>
@@ -178,6 +190,7 @@ export function InvoiceDetail({
         <InvoiceReceipts invoice={invoice} state={state} />
 
         <InvoiceNotes invoice={invoice} onUpdate={onUpdate} />
+        </div>
       </div>
     </div>
   )

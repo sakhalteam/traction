@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import type { DurationStyle, Settings, TractionState } from '../types'
 import { entriesToCSV, expensesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
-import { ReceiptError, uploadLogo } from '../receipts'
+import { ReceiptError, uploadInvoiceBg, uploadLogo } from '../receipts'
 import { supabase } from '../supabaseClient'
 import { DurationToggle } from './DurationFields'
 import { LogoImage } from './LogoImage'
+import { InvoiceBackground } from './InvoiceBackground'
 
 function download(filename: string, text: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }))
@@ -31,6 +32,9 @@ export function SettingsView({
   const logoRef = useRef<HTMLInputElement>(null)
   const [logoBusy, setLogoBusy] = useState(false)
   const [logoMsg, setLogoMsg] = useState<string | null>(null)
+  const bgRef = useRef<HTMLInputElement>(null)
+  const [bgBusy, setBgBusy] = useState(false)
+  const [bgMsg, setBgMsg] = useState<string | null>(null)
 
   /**
    * Saved immediately rather than waiting for "Save changes". The upload has
@@ -50,6 +54,22 @@ export function SettingsView({
     } finally {
       setLogoBusy(false)
       if (logoRef.current) logoRef.current.value = ''
+    }
+  }
+  /** Same immediate-save reasoning as the logo. */
+  async function pickBackground(file: File) {
+    setBgBusy(true)
+    setBgMsg(null)
+    try {
+      const path = await uploadInvoiceBg(supabase, file)
+      const next = { ...s, invoiceBgPath: path }
+      setS(next)
+      onUpdate(next)
+    } catch (err) {
+      setBgMsg(err instanceof ReceiptError ? err.message : 'Could not upload that image.')
+    } finally {
+      setBgBusy(false)
+      if (bgRef.current) bgRef.current.value = ''
     }
   }
   const set = (patch: Partial<Settings>) => setS(prev => ({ ...prev, ...patch }))
@@ -112,7 +132,38 @@ export function SettingsView({
             )}
           </div>
           {logoMsg && <p className="hint tiny err">{logoMsg}</p>}
-          <p className="hint tiny">Appears at the top of every invoice. Saved as soon as it uploads.</p>
+          <p className="hint tiny">
+            Appears at the top of every invoice. Saved as soon as it uploads.
+            Transparent PNGs stay transparent.
+          </p>
+        </div>
+
+        <div className="field">
+          <span>Invoice background</span>
+          <div className="logo-row">
+            {/* The same component the invoice uses, so this preview can't drift
+                from the real thing — including the fallback to the default. */}
+            <span className="bg-preview"><InvoiceBackground path={s.invoiceBgPath} /></span>
+            <input
+              ref={bgRef} type="file" accept="image/*" hidden
+              onChange={e => { const f = e.target.files?.[0]; if (f) void pickBackground(f) }}
+            />
+            <button className="btn" disabled={bgBusy} onClick={() => bgRef.current?.click()}>
+              {bgBusy ? 'Uploading…' : s.invoiceBgPath ? 'Replace background' : 'Upload background'}
+            </button>
+            {s.invoiceBgPath && !bgBusy && (
+              <button className="btn ghost"
+                onClick={() => { set({ invoiceBgPath: null }); onUpdate({ ...s, invoiceBgPath: null }) }}>
+                Use default
+              </button>
+            )}
+          </div>
+          {bgMsg && <p className="hint tiny err">{bgMsg}</p>}
+          <p className="hint tiny">
+            Printed faintly behind every invoice. Ships with a topographic default, so
+            there's always one — uploading only replaces it. Portrait, page-shaped and
+            mostly transparent works best.
+          </p>
         </div>
         <div className="field-row">
           <label className="field narrow-field"><span>Currency symbol</span>

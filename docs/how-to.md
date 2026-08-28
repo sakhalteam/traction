@@ -252,6 +252,14 @@ Your analytics dashboard — the Toggl-style view of the business.
   donut for tax time.
 - **Service breakdown table:** hours + earnings per service, with a total.
 
+### What an invoice looks like
+
+Black ink on white paper, monospaced and uppercase, ruled with hairlines — built to be
+printed or PDF'd rather than admired on screen. There is no colour on the sheet at all,
+so a black-and-white printer loses nothing. Each line item carries a **line-art glyph**
+for its service (a sprout for gardening, shears for pruning, a nozzle for pressure
+washing), and anything without one gets a neutral mark rather than a gap.
+
 ### Settings
 
 - **Logo** — appears at the top of every invoice. **Transparent PNGs are kept
@@ -259,6 +267,11 @@ Your analytics dashboard — the Toggl-style view of the business.
   black box. The preview sits on a checkerboard so you can tell at a glance whether the
   background really is transparent. Opaque images are still stored as JPEG, which is
   much smaller.
+- **Invoice background** — the watermark printed faintly behind every invoice. A
+  topographic map ships with the app, so there is always one; uploading only replaces
+  it. It's drawn as a real image rather than a CSS background, so it prints and PDFs
+  **without** the reader having to enable "background graphics". Portrait, page-shaped
+  and mostly transparent works best.
 - **Business details** — the invoice "from" block + currency symbol + payment terms.
   Invoice numbers aren't set here: they're `CODE-YYYYMMDD-NN`, built per client per day
   (set a client's code under **Clients**).

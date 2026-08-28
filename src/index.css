@@ -18,6 +18,7 @@
   --amber: #f59e0b;
   --sky: #38bdf8;
   --danger: #f43f5e;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
   --radius: 16px;
   --radius-sm: 10px;
   --shadow: 0 10px 40px -12px rgba(0, 0, 0, 0.6);
@@ -350,6 +351,15 @@ textarea { resize: vertical; }
   background-size: 12px 12px;
   background-position: 0 0, 6px 6px;
 }
+/* Shows the real watermark at real opacity, on paper-white, so the preview
+   answers "what will actually print" rather than "what file did I pick". */
+.bg-preview {
+  position: relative; display: block; width: 62px; height: 80px; flex: none;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: #fff; overflow: hidden;
+}
+.bg-preview .invoice-bg { opacity: 0.55; }
+
 .logo-preview.empty {
   display: flex; align-items: center; justify-content: center;
   width: 96px; height: 54px; border-style: dashed;
@@ -507,37 +517,112 @@ textarea { resize: vertical; }
 .status-switch .status-pill { cursor: pointer; opacity: 0.55; border-color: var(--border); }
 .status-switch .status-pill.active { opacity: 1; border-color: currentColor; }
 
+/* ===== Invoice sheet =====
+   A printed invoice is black ink on white paper, so this block is deliberately
+   NOT themed — it reads identically on screen, on a laser printer and in a PDF.
+   Monospace, uppercase and hairline-ruled throughout: the same instrument-panel
+   language the app uses, and the one thing that still reads at 11pt in a single
+   colour. Every value here is black or a grey, never a brand colour. */
 .invoice-sheet {
-  background: #ffffff; color: #0f172a;
-  border-radius: var(--radius); padding: 44px 46px; box-shadow: var(--shadow);
-  max-width: 800px; margin: 0 auto; width: 100%;
+  position: relative; overflow: hidden;
+  background: #ffffff; color: #000;
+  border-radius: var(--radius); padding: 40px 44px; box-shadow: var(--shadow);
+  max-width: 860px; margin: 0 auto; width: 100%;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
 }
-.invoice-sheet .dim { color: #64748b; }
+/* The watermark, as an <img> rather than a background-image: browsers drop
+   background images from printed output unless the reader ticks "background
+   graphics", and an invoice's paper is not left to a print-dialog checkbox. */
+.invoice-bg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: 0.14; pointer-events: none; user-select: none;
+}
+.invoice-body { position: relative; }
+.invoice-sheet .dim { color: #555; }
 /* Due date sits on the white printable sheet — must stay legible in print. */
-.due-line { color: #0f172a; font-weight: 600; }
-.invoice-top { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
-.from-name { font-size: 1.25rem; font-weight: 700; margin-bottom: 4px; }
-.invoice-meta { text-align: right; }
-.invoice-meta h1 { font-size: 2rem; letter-spacing: 0.08em; color: #0f172a; margin: 0 0 4px; }
-.inv-numline { font-weight: 650; font-variant-numeric: tabular-nums; }
-.big-status { display: inline-block; margin-top: 8px; font-size: 0.8rem; }
+.due-line { color: #000; font-weight: 700; }
 
-.invoice-billto { margin-bottom: 22px; }
-.invoice-billto .label, .invoice-notes .label { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 3px; }
-.billto-name { font-weight: 650; font-size: 1.05rem; }
+.invoice-top {
+  display: flex; justify-content: space-between; gap: 24px;
+  margin-bottom: 26px; padding-bottom: 18px; border-bottom: 1px solid #000;
+}
+.invoice-from { font-size: 0.8rem; line-height: 1.55; }
+.from-name {
+  font-size: 1.05rem; font-weight: 700; margin-bottom: 5px;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.invoice-meta { text-align: right; font-size: 0.78rem; }
+.invoice-meta h1 {
+  font-size: 2.1rem; font-weight: 700; letter-spacing: 0.3em;
+  text-transform: uppercase; color: #000; margin: 0; line-height: 1;
+}
+.inv-numline { font-weight: 700; letter-spacing: 0.06em; margin: 6px 0 10px; font-size: 0.9rem; }
+/* Label/value pairs held in two hard columns, however long a date runs. */
+.meta-grid {
+  display: grid; grid-template-columns: auto auto; gap: 2px 14px;
+  justify-content: end; margin: 0;
+}
+.meta-grid dt {
+  text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.66rem;
+  color: #555; text-align: left; align-self: center;
+}
+/* Dates read as caps like every other structural value. Addresses and emails
+   deliberately do NOT — an uppercased email address is just wrong. */
+.meta-grid dd { margin: 0; text-align: right; text-transform: uppercase; }
+.invoice-sheet .big-status {
+  display: inline-block; margin-top: 10px; font-size: 0.66rem;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  border-radius: 0; border: 1px solid #000; background: none; color: #000; padding: 3px 12px;
+}
 
-.invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-.invoice-table th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; padding: 8px 10px; border-bottom: 2px solid #e2e8f0; }
-.invoice-table td { padding: 8px 10px; border-bottom: 1px solid #eef2f7; vertical-align: top; }
+.invoice-billto { margin-bottom: 24px; font-size: 0.82rem; line-height: 1.55; }
+.invoice-billto .label, .invoice-notes .label {
+  display: block; font-size: 0.66rem; text-transform: uppercase;
+  letter-spacing: 0.14em; color: #555; margin-bottom: 5px;
+}
+.billto-name {
+  font-weight: 700; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.07em;
+}
+
+.invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 0.8rem; }
+.invoice-table th {
+  text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.14em;
+  color: #000; font-weight: 700; padding: 0 10px 7px; border-bottom: 1px solid #000;
+}
+.invoice-table td { padding: 7px 10px; border-bottom: 1px solid #d9d9d9; vertical-align: top; }
 .invoice-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.line-note { color: #64748b; font-size: 0.85em; }
-.day-subtotal td { border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; }
-.day-subtotal .dim { color: #94a3b8; }
-.grand-total td { padding-top: 14px; font-weight: 700; font-size: 1.05rem; border-bottom: none; }
+/* The date column reads as a section marker down the left edge. */
+.invoice-table tbody td:first-child {
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; white-space: nowrap;
+}
+.svc-cell {
+  display: flex; align-items: flex-start; gap: 8px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+/* Charge labels are typed by hand, so they arrive in whatever case they were
+   typed; the sheet decides how they read. */
+.charge-label { text-transform: uppercase; letter-spacing: 0.04em; }
+.svc-glyph { width: 15px; height: 15px; flex: none; margin-top: 1px; color: #000; }
+.line-note { color: #555; font-size: 0.92em; }
+.day-subtotal td { border-bottom: 1px solid #d9d9d9; font-size: 0.76rem; }
+.day-subtotal .dim { color: #555; text-transform: uppercase; letter-spacing: 0.08em; }
+.section-row td {
+  text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.64rem; font-weight: 700;
+  padding-top: 18px; border-bottom: 1px solid #000; color: #000;
+}
+.foot-sub td { padding-top: 8px; border-bottom: none; }
+.foot-sub .dim { text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.7rem; }
+.grand-total td {
+  padding-top: 12px; font-weight: 700; font-size: 1rem; border-bottom: none;
+  border-top: 2px solid #000; text-transform: uppercase; letter-spacing: 0.08em;
+}
 
 .invoice-notes { margin-top: 22px; }
-.invoice-notes textarea { color: #0f172a; background: #f8fafc; border-color: #e2e8f0; }
-.printed-notes { margin-top: 8px; color: #334155; white-space: pre-wrap; font-size: 0.9rem; }
+.invoice-notes { margin-top: 24px; padding-top: 16px; border-top: 1px solid #000; }
+.invoice-notes textarea {
+  color: #000; background: #fafafa; border-color: #d9d9d9; font-family: var(--mono);
+}
+.printed-notes { margin-top: 8px; color: #000; white-space: pre-wrap; font-size: 0.8rem; }
 
 .danger-zone { border-color: rgba(244, 63, 94, 0.3); }
 
@@ -602,13 +687,29 @@ textarea { resize: vertical; }
 .rate-svc-name { flex: 1; font-size: 0.88rem; }
 .rate-override-row .narrow { flex: 0 0 90px; width: 90px; }
 
-/* ===== Invoice expenses ===== */
-.section-row td { padding-top: 16px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #e2e8f0; }
-.foot-sub td { padding: 4px 10px; font-size: 0.88rem; }
-.invoice-expenses { margin-top: 22px; display: flex; flex-direction: column; gap: 8px; }
+/* ===== Invoice expenses =====
+   These sit ON the white sheet, so they take the sheet's ink rather than the
+   app's theme — the editor used to render as pale slate-on-white. */
+.invoice-expenses {
+  margin-top: 24px; display: flex; flex-direction: column; gap: 8px;
+  padding-top: 16px; border-top: 1px solid #000;
+}
+.invoice-expenses .label,
+.invoice-sheet .invoice-expenses > .hint {
+  color: #000; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em;
+}
+.invoice-sheet .invoice-expenses .hint { color: #555; text-transform: none; letter-spacing: 0; }
 .expense-row { display: flex; gap: 8px; align-items: center; }
-.expense-row input { color: #0f172a; background: #f8fafc; border-color: #e2e8f0; }
-.invoice-expenses .btn { width: auto; align-self: flex-start; }
+.expense-row input {
+  color: #000; background: #fafafa; border-color: #d9d9d9; font-family: var(--mono);
+}
+.invoice-expenses .btn {
+  width: auto; align-self: flex-start; color: #000; border-color: #999; background: none;
+  text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.7rem;
+}
+.invoice-expenses .btn:hover { background: #f0f0f0; border-color: #000; }
+.invoice-sheet .icon-btn { color: #555; }
+.invoice-sheet .icon-btn:hover { color: #000; }
 
 /* ===== A/R summary ===== */
 .ar-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -792,6 +893,18 @@ textarea { resize: vertical; }
   .invoice-table tr { break-inside: avoid; page-break-inside: avoid; }
   .invoice-table tfoot tr { break-inside: avoid; page-break-inside: avoid; }
   .grand-total { break-before: avoid; page-break-before: avoid; }
+
+  /*
+   * Fixed, not absolute: an absolutely-positioned watermark is laid out once
+   * against the whole document, so on a two-page invoice it stretches across
+   * both. Fixed elements repeat on every printed page, which is what a
+   * watermark is supposed to do.
+   */
+  .invoice-bg {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
+  .invoice-sheet { overflow: visible; }
 
   /* Tighter on paper — the goal is one page whenever the work fits on one. */
   .invoice-sheet { font-size: 11pt; }
