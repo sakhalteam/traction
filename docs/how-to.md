@@ -254,6 +254,11 @@ Your analytics dashboard — the Toggl-style view of the business.
 
 ### Settings
 
+- **Logo** — appears at the top of every invoice. **Transparent PNGs are kept
+  transparent**, so a cut-out logo sits on the invoice's white paper instead of in a
+  black box. The preview sits on a checkerboard so you can tell at a glance whether the
+  background really is transparent. Opaque images are still stored as JPEG, which is
+  much smaller.
 - **Business details** — the invoice "from" block + currency symbol + payment terms.
   Invoice numbers aren't set here: they're `CODE-YYYYMMDD-NN`, built per client per day
   (set a client's code under **Clients**).

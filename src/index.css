@@ -336,14 +336,25 @@ textarea { resize: vertical; }
 .invoice-logo { max-height: 68px; max-width: 220px; object-fit: contain; display: block; margin-bottom: 8px; }
 .logo-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .logo-row .btn { width: auto; }
+/* A checkerboard rather than a flat dark fill. It answers the only question
+   worth asking of a logo preview — is the background actually transparent, or
+   is it a white/black rectangle? — and it previews against something close to
+   the paper the invoice prints on instead of against the app's dark theme. */
 .logo-preview {
-  max-height: 54px; max-width: 160px; object-fit: contain;
-  border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(15, 23, 42, 0.4);
+  max-height: 54px; max-width: 160px; object-fit: contain; padding: 4px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #d5dae2 25%, transparent 25%, transparent 75%, #d5dae2 75%),
+    linear-gradient(45deg, #d5dae2 25%, transparent 25%, transparent 75%, #d5dae2 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
 }
 .logo-preview.empty {
   display: flex; align-items: center; justify-content: center;
   width: 96px; height: 54px; border-style: dashed;
   color: var(--text-faint); font-size: 0.78rem;
+  background: rgba(15, 23, 42, 0.4);
 }
 
 /* ===== Entry rows ===== */

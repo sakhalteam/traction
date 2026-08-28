@@ -392,6 +392,66 @@ const oneBtn = await page.locator('.nudge-btns .btn').first().boundingBox()
 check('Adjust-end stays on a single row', btnRow.height < oneBtn.height * 1.6,
   `row ${Math.round(btnRow.height)}px vs button ${Math.round(oneBtn.height)}px`)
 
+// ---- 16. A transparent logo survives upload processing -----------------
+// Runs the REAL downscale() out of the dev server, on a PNG with genuine
+// alpha. JPEG has no alpha channel, so encoding one as JPEG turns every clear
+// pixel black -- burned into the stored file, unfixable at render time.
+const logo = await page.evaluate(async () => {
+  const mod = await import('/traction/src/receipts.ts')
+  const make = () => new Promise(res => {
+    const c = document.createElement('canvas')
+    c.width = 60; c.height = 60
+    const x = c.getContext('2d')
+    x.fillStyle = '#ff0000'
+    x.fillRect(0, 0, 30, 30)          // one opaque quadrant; the rest stays clear
+    c.toBlob(b => res(new File([b], 'logo.png', { type: 'image/png' })), 'image/png')
+  })
+  const file = await make()
+
+  const kept = await mod.downscale(file, { preserveAlpha: true })
+  const flat = await mod.downscale(file)                     // receipts/job photos
+
+  // Decode what would actually be stored and read the corner that was clear.
+  const img = await new Promise((res, rej) => {
+    const i = new Image()
+    i.onload = () => res(i); i.onerror = rej
+    i.src = URL.createObjectURL(kept.blob)
+  })
+  const c2 = document.createElement('canvas')
+  c2.width = img.width; c2.height = img.height
+  const x2 = c2.getContext('2d')
+  x2.drawImage(img, 0, 0)
+  const clear = x2.getImageData(img.width - 1, img.height - 1, 1, 1).data
+  const solid = x2.getImageData(1, 1, 1, 1).data
+
+  // An opaque source must NOT be upgraded to PNG just because we asked.
+  const opaqueFile = await new Promise(res => {
+    const c = document.createElement('canvas')
+    c.width = 20; c.height = 20
+    const x = c.getContext('2d')
+    x.fillStyle = '#00ff00'; x.fillRect(0, 0, 20, 20)
+    c.toBlob(b => res(new File([b], 'flat.png', { type: 'image/png' })), 'image/png')
+  })
+  const opaque = await mod.downscale(opaqueFile, { preserveAlpha: true })
+
+  return {
+    keptType: kept.contentType, keptExt: kept.ext,
+    flatType: flat.contentType, flatExt: flat.ext,
+    clearAlpha: clear[3], solidAlpha: solid[3], solidRed: solid[0],
+    opaqueType: opaque.contentType,
+  }
+})
+
+check('A transparent logo is stored as PNG', logo.keptType === 'image/png' && logo.keptExt === 'png',
+  `${logo.keptType} / .${logo.keptExt}`)
+check('Its transparent pixels stay transparent', logo.clearAlpha === 0,
+  `corner alpha ${logo.clearAlpha} (255 = the old black box)`)
+check('Its opaque pixels are untouched', logo.solidAlpha === 255 && logo.solidRed > 200,
+  `rgba alpha ${logo.solidAlpha}, red ${logo.solidRed}`)
+check('An opaque PNG is not needlessly upgraded', logo.opaqueType === 'image/jpeg', logo.opaqueType)
+check('Receipts and job photos stay JPEG', logo.flatType === 'image/jpeg' && logo.flatExt === 'jpg',
+  `${logo.flatType} / .${logo.flatExt}`)
+
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await browser.close()
