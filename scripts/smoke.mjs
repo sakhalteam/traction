@@ -486,6 +486,48 @@ check('The total is pure black', ink.total === 'rgb(0, 0, 0)', ink.total)
 check('The heading is pure black', ink.heading === 'rgb(0, 0, 0)', ink.heading)
 check('The sheet is monospaced', /mono/.test(ink.mono), ink.mono.slice(0, 40))
 
+// ---- 18. The invoice fits a phone ---------------------------------------
+// Five mono columns overflowed 390px and dropped RATE and AMOUNT off the edge.
+const fit = await page.evaluate(() => {
+  const t = document.querySelector('.invoice-table')
+  const amount = document.querySelector('.grand-total td:last-child')
+  return {
+    pageOver: document.documentElement.scrollWidth > window.innerWidth,
+    tableOver: t.scrollWidth > t.clientWidth + 1,
+    amountVisible: amount.getBoundingClientRect().right <= window.innerWidth + 1,
+  }
+})
+check('The invoice does not overflow a phone', !fit.pageOver && !fit.tableOver,
+  `page:${fit.pageOver} table:${fit.tableOver}`)
+check('The total amount is on screen, not clipped off the edge', fit.amountVisible)
+
+// ---- 19. The shared copy is device-independent ---------------------------
+// The whole point: a client's copy must not change shape depending on which
+// screen produced it, so this renders at letter width from a 390px viewport.
+const png = await page.evaluate(async () => {
+  const { elementToPng } = await import('/traction/src/share.ts')
+  const blob = await elementToPng(document.querySelector('.invoice-sheet'))
+  const img = await createImageBitmap(blob)
+  const c = new OffscreenCanvas(img.width, img.height)
+  const x = c.getContext('2d')
+  x.drawImage(img, 0, 0)
+  const d = x.getImageData(0, 0, img.width, img.height).data
+  let ink = 0
+  for (let i = 0; i < d.length; i += 4 * 53) if (d[i] < 100) ink++
+  // The bottom eighth should be near-empty; a mis-measured height padded the
+  // image with a slab of white below the total.
+  const tail = x.getImageData(0, Math.floor(img.height * 0.88), img.width, Math.floor(img.height * 0.12)).data
+  let tailInk = 0
+  for (let i = 0; i < tail.length; i += 4 * 53) if (tail[i] < 100) tailInk++
+  return { w: img.width, h: img.height, kb: Math.round(blob.size / 1024), ink, tailInk }
+})
+check('Shares at letter width regardless of viewport', png.w === 1632,
+  `${png.w}x${png.h} from a 390px screen`)
+check('The image has real content, not a blank canvas', png.ink > 100, `${png.ink} dark samples`)
+check('No dead space padding the bottom', png.tailInk < png.ink / 8,
+  `tail ${png.tailInk} vs total ${png.ink}`)
+check('Shared image is a sane size to text', png.kb < 1500, `${png.kb}KB`)
+
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await browser.close()

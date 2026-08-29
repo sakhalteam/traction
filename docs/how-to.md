@@ -252,6 +252,22 @@ Your analytics dashboard — the Toggl-style view of the business.
   donut for tax time.
 - **Service breakdown table:** hours + earnings per service, with a total.
 
+### Sending an invoice
+
+- **↗ Share** (next to Print) renders the invoice as an **image** and hands it to your
+  phone's share sheet — text it, email it, AirDrop it. An image previews inline in a
+  message, where a PDF arrives as a file the client has to decide to open. On a browser
+  with no share sheet the button saves the image instead.
+- **The shared copy is always the same document**, whichever device you make it on. A
+  phone and a laptop produce a byte-for-byte identical image. Your client might print it
+  or forward it to a bookkeeper, so it should never change shape based on which screen
+  you happened to be holding.
+- **Print / Save PDF** is still there for a paper copy or a real PDF attachment.
+
+> 💡 **There is no "desktop version" of an invoice.** It isn't a file — it's rebuilt from
+> your data every time you open it, so it always fits the screen you're reading it on.
+> Only sharing and printing freeze it, and those freeze it to one fixed format on purpose.
+
 ### What an invoice looks like
 
 Black ink on white paper, monospaced and uppercase, ruled with hairlines — built to be
@@ -259,6 +275,11 @@ printed or PDF'd rather than admired on screen. There is no colour on the sheet 
 so a black-and-white printer loses nothing. Each line item carries a **line-art glyph**
 for its service (a sprout for gardening, shears for pruning, a nozzle for pressure
 washing), and anything without one gets a neutral mark rather than a gap.
+
+On a phone the line items stack into small cards — date, the work, then hours, rate and
+amount on one line — because five monospaced columns cannot fit 390px without pushing
+the amount off the edge. That's a **reading** layout only; printing and sharing always
+use the full letter-width table.
 
 ### Settings
 

@@ -1219,7 +1219,7 @@ textarea { resize: vertical; }
   .runaway-actions .btn { flex: 1; }
 
   .invoice-sheet { padding: 20px 16px; border-radius: 12px; }
-  .report-table, .invoice-table { font-size: 0.85rem; }
+  .report-table { font-size: 0.85rem; }
 
   .builder-foot { flex-direction: column; align-items: stretch; }
   .builder-buttons { justify-content: stretch; }
@@ -1285,4 +1285,67 @@ textarea { resize: vertical; }
   .resume-chips::-webkit-scrollbar { display: none; }
   .chip-pair { flex: none; scroll-snap-align: start; }
   .chip-pair .chip { white-space: nowrap; }
+}
+
+.share-msg { max-width: 860px; margin: 0 auto 10px; }
+
+/* ===== Invoice on a phone =====
+   Five monospaced columns cannot fit 390px, and a table that overflows silently
+   drops RATE and AMOUNT off the right edge — the two numbers the whole document
+   exists to communicate. Below this width each row becomes a small stacked card
+   instead: date, then the work, then the arithmetic on one line.
+
+   This is a VIEWING layout only. The printed and shared copy stays the
+   letter-width table, because the client's copy must not change shape depending
+   on which device happened to render it. */
+@media (max-width: 560px) {
+  .invoice-table, .invoice-table tbody, .invoice-table tfoot,
+  .invoice-table tr, .invoice-table td { display: block; width: auto; }
+  .invoice-table thead { display: none; }
+
+  .invoice-table tbody tr {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-areas:
+      "date  date  date"
+      "svc   svc   svc"
+      "hours rate  amount";
+    gap: 2px 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #d9d9d9;
+  }
+  .invoice-table tbody td { border: none; padding: 0; }
+  /* Continuation rows inside a day carry an empty date cell; without this it
+     still reserves a line and the card grows a blank gap at the top. */
+  .invoice-table tbody td:empty { display: none; }
+
+  .invoice-table tbody td:nth-child(1) { grid-area: date; font-weight: 700; }
+  .invoice-table tbody td:nth-child(2) { grid-area: svc; }
+  .invoice-table tbody td:nth-child(3) { grid-area: hours; }
+  .invoice-table tbody td:nth-child(4) { grid-area: rate; color: #555; }
+  .invoice-table tbody td:nth-child(5) { grid-area: amount; font-weight: 700; }
+  /* Hours and rate read as one phrase — "3H 59M @ $30.00" — so they sit left
+     while the amount holds the right edge. */
+  .invoice-table tbody td:nth-child(3),
+  .invoice-table tbody td:nth-child(4) { text-align: left; }
+  .invoice-table tbody td:nth-child(4)::before { content: "@ "; }
+
+  /* A colSpan row (the materials header) has one cell and spans the card. */
+  .invoice-table .section-row { display: block; padding: 16px 0 6px; }
+  .invoice-table .section-row td { grid-area: auto; border-bottom: 1px solid #000; padding-bottom: 6px; }
+  .day-subtotal { background: #fafafa; }
+
+  .invoice-table tfoot tr {
+    display: flex; justify-content: space-between; gap: 12px; padding: 6px 0;
+  }
+  .invoice-table tfoot td { border: none; padding: 0; }
+  .invoice-table tfoot td:empty { display: none; }
+  .grand-total { border-top: 2px solid #000; padding-top: 10px; margin-top: 4px; }
+  .grand-total td { padding-top: 0; border-top: none; }
+
+  /* The meta block reads as label/value pairs down the page rather than being
+     pushed against a right edge that no longer exists. */
+  .meta-grid { justify-content: start; }
+  .meta-grid dd { text-align: left; }
+  .invoice-meta h1 { font-size: 1.7rem; letter-spacing: 0.22em; }
 }

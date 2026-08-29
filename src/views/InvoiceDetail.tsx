@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney,
@@ -9,6 +9,7 @@ import { JobPhotos } from './JobPhotos'
 import { LogoImage } from './LogoImage'
 import { InvoiceBackground } from './InvoiceBackground'
 import { ServiceIcon } from './ServiceIcon'
+import { canShareFiles, shareInvoice } from '../share'
 
 const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
@@ -26,6 +27,27 @@ export function InvoiceDetail({
   onRemoveCharge: (invoiceId: string, expenseId: string) => void
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const [sharing, setSharing] = useState(false)
+  const [shareMsg, setShareMsg] = useState<string | null>(null)
+
+  /**
+   * Rasterise this invoice at letter width and hand it to the OS share sheet.
+   * Always letter width, never the phone's — see share.ts.
+   */
+  async function share() {
+    if (!sheetRef.current) return
+    setSharing(true)
+    setShareMsg(null)
+    try {
+      const how = await shareInvoice(sheetRef.current, invoice.number, `Invoice ${invoice.number}`)
+      if (how === 'downloaded') setShareMsg('Saved as an image — attach it from your files.')
+    } catch {
+      setShareMsg('Could not build the image. Print / Save PDF still works.')
+    } finally {
+      setSharing(false)
+    }
+  }
   const client = state.clients.find(c => c.id === invoice.clientId)
   const settings = state.settings
   const durationStyle = settings.durationFormat ?? 'hm'
@@ -54,6 +76,9 @@ export function InvoiceDetail({
         </div>
         <div className="spacer" />
         <button className="btn primary" onClick={() => window.print()}>Print / Save PDF</button>
+        <button className="btn" disabled={sharing} onClick={() => void share()}>
+          {sharing ? 'Preparing…' : canShareFiles() ? '↗ Share' : '↓ Save image'}
+        </button>
         {confirmDel
           ? <button className="btn danger" onClick={() => onDelete(invoice.id)}>Really delete?</button>
           : <button className="btn danger ghost" onClick={() => setConfirmDel(true)}>Delete</button>}
@@ -63,7 +88,9 @@ export function InvoiceDetail({
         <p className="hint tiny no-print">Legacy invoice — totals still reflect live entries.</p>
       )}
 
-      <div className="invoice-sheet">
+      {shareMsg && <p className="hint tiny no-print share-msg">{shareMsg}</p>}
+
+      <div className="invoice-sheet" ref={sheetRef}>
         <InvoiceBackground path={settings.invoiceBgPath} />
         <div className="invoice-body">
         <div className="invoice-top">
