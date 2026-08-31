@@ -61,7 +61,21 @@ const state = {
       rate: 85, invoiceId: null, photoPaths: [], createdAt: now - 10 * DAY,
     },
   ],
-  expenses: [],
+  expenses: [
+    // Two on a client and one unattributed, so every expense state has a case.
+    { id: 'x1', clientId: 'c2', label: 'Mulch', amount: 40, category: 'Materials',
+      date: iso(now - 3 * DAY), billable: true, invoiceId: null, settled: null,
+      note: '', receiptPath: null, createdAt: now - 3 * DAY },
+    { id: 'x2', clientId: 'c2', label: 'Lumber', amount: 77.04, category: 'Materials',
+      date: iso(now - 2 * DAY), billable: true, invoiceId: null, settled: null,
+      note: '', receiptPath: null, createdAt: now - 2 * DAY },
+    { id: 'x3', clientId: null, label: 'Spare timber', amount: 25, category: 'Materials',
+      date: iso(now - DAY), billable: true, invoiceId: null, settled: null,
+      note: '', receiptPath: null, createdAt: now - DAY },
+    { id: 'x4', clientId: null, label: 'Gas', amount: 60, category: 'Fuel',
+      date: iso(now - DAY), billable: false, invoiceId: null, settled: null,
+      note: '', receiptPath: null, createdAt: now - DAY },
+  ],
   invoices: [],
   settings: {
     businessName: 'Sakhal Grounds', businessEmail: '', businessPhone: '', businessAddress: '',
@@ -527,6 +541,85 @@ check('The image has real content, not a blank canvas', png.ink > 100, `${png.in
 check('No dead space padding the bottom', png.tailInk < png.ink / 8,
   `tail ${png.tailInk} vs total ${png.ink}`)
 check('Shared image is a sane size to text', png.kb < 1500, `${png.kb}KB`)
+
+// ---- 20. Expenses: an expense has more than one way to close ------------
+await page.locator('.tab', { hasText: 'Expenses' }).click()
+await page.waitForTimeout(600)
+
+check('Open work is split from the shelf',
+  (await page.locator('.tile-btn').count()) === 2)
+await page.locator('.tile-btn').first().click()
+await page.waitForTimeout(400)
+check('The ready-to-bill tile opens its list',
+  (await page.locator('.open-expenses li').count()) === 2,
+  `${await page.locator('.open-expenses li').count()} rows`)
+
+// Settle one without ever invoicing it — the "traded it / they handed me cash"
+// case that previously had no exit but deleting the record.
+await page.locator('.open-expenses li', { hasText: 'Mulch' })
+  .locator('.icon-btn[title="Settle without invoicing"]').click()
+await page.waitForTimeout(400)
+await page.locator('.row-drawer .chip', { hasText: 'Traded' }).click()
+await page.locator('.row-drawer input').fill('swapped for concert tickets')
+await page.locator('.row-drawer button', { hasText: 'Settle' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const settled = s.expenses.find(x => x.label === 'Mulch')
+check('Settling records how and why',
+  settled?.settled?.how === 'trade' && settled.settled.note === 'swapped for concert tickets',
+  JSON.stringify(settled?.settled))
+check('The amount is left intact, not zeroed', settled?.amount === 40)
+check('It leaves the ready-to-bill list',
+  (await page.locator('.open-expenses li').count()) === 1)
+
+// Split: charge for half the lumber, shelve the offcut.
+await page.locator('.open-expenses li', { hasText: 'Lumber' })
+  .locator('.icon-btn[title="Charge only part of this"]').click()
+await page.waitForTimeout(400)
+await page.locator('.row-drawer input[type="number"]').fill('38.52')
+await page.locator('.row-drawer button', { hasText: 'Split' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const lumber = s.expenses.filter(x => x.label === 'Lumber')
+check('Splitting makes two expenses', lumber.length === 2, `${lumber.length}`)
+const billedHalf = lumber.find(x => x.clientId)
+const offcut = lumber.find(x => !x.clientId)
+check('The billed half keeps the client and the money adds up',
+  billedHalf?.amount === 38.52 && offcut?.amount === 38.52,
+  `${billedHalf?.amount} + ${offcut?.amount} of 77.04`)
+check('The remainder goes to the shelf, not back on the client',
+  offcut?.clientId === null && offcut?.billable === true && !offcut?.settled)
+check('The billed half explains itself on the invoice',
+  /[$]38\.52 of [$]77\.04/.test(billedHalf?.note ?? ''), billedHalf?.note)
+
+// The shelf now holds the original spare plus the offcut.
+await page.locator('.tile-btn').nth(1).click()
+await page.waitForTimeout(500)
+check('The shelf holds unattributed material',
+  (await page.locator('.open-expenses li').count()) === 2,
+  `${await page.locator('.open-expenses li').count()} rows`)
+
+// Assign a shelf item to whoever ended up using it.
+await page.locator('.open-expenses li', { hasText: 'Spare timber' })
+  .locator('.icon-btn[title="Assign to a client"]').click()
+await page.waitForTimeout(400)
+await page.locator('.row-drawer .chip').first().click()
+await page.waitForTimeout(500)
+s = await readState()
+const spare = s.expenses.find(x => x.label === 'Spare timber')
+check('Assigning a shelf item gives it a client', !!spare?.clientId, String(spare?.clientId))
+
+// A settled expense must never be offered for billing again.
+await page.locator('.tab', { hasText: 'Invoices' }).click()
+await page.waitForTimeout(600)
+await page.locator('.picker-trigger').first().click()
+await page.waitForTimeout(400)
+await page.locator('.picker-row', { hasText: 'Okonkwo' }).click()
+await page.waitForTimeout(600)
+const offered = await page.locator('.candidate-list').allInnerTexts()
+check('A settled expense is not offered as an invoice candidate',
+  !offered.join(' ').includes('Mulch'), offered.join(' ').slice(0, 90))
+check('An unsettled one still is', offered.join(' ').includes('Lumber'))
 
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 

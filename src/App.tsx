@@ -5,11 +5,12 @@ import {
   emptyState, isEmptyState, loadLocal, saveLocal, touchLocal, saveRemote, loadRemote,
   getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
-  addDays, nextInvoiceNumber, dateFromEpoch,
+  addDays, nextInvoiceNumber, dateFromEpoch, splitExpense,
 } from './store'
 import type { RemoteState } from './store'
 import type {
-  Client, DurationStyle, Expense, Invoice, InvoiceStatus, Service, Settings, TimeEntry, TractionState,
+  Client, DurationStyle, Expense, Invoice, InvoiceStatus, Service, Settings, SettledHow,
+  TimeEntry, TractionState,
 } from './types'
 import { deleteReceipt, uploadJobPhoto } from './receipts'
 import { useNow } from './useNow'
@@ -332,6 +333,44 @@ export default function App() {
       return { ...s, expenses: s.expenses.map(x => x.id === exp.id ? exp : x) }
     })
   }, [mutate])
+  /**
+   * Close a billable expense out without an invoice, or reopen it.
+   *
+   * The amount, date, client and receipt are all left alone: the point is to
+   * stop chasing the money, not to pretend the money was never spent.
+   */
+  const settleExpense = useCallback((id: string, how: SettledHow | null, note = '') => {
+    mutate(s => ({
+      ...s,
+      expenses: s.expenses.map(x => x.id !== id || x.invoiceId ? x : {
+        ...x,
+        settled: how ? { how, note, date: todayISO() } : null,
+      }),
+    }))
+  }, [mutate])
+
+  /** Put a shelf expense against a client, or take it back off one. */
+  const assignExpense = useCallback((id: string, clientId: string | null) => {
+    mutate(s => ({
+      ...s,
+      expenses: s.expenses.map(x => x.id !== id || x.invoiceId ? x : { ...x, clientId }),
+    }))
+  }, [mutate])
+
+  /** Charge part of an expense and shelve the rest — see splitExpense. */
+  const splitExpenseAction = useCallback((id: string, billedAmount: number) => {
+    mutate(s => {
+      const existing = s.expenses.find(x => x.id === id)
+      if (!existing || existing.invoiceId) return s
+      const [billed, remainder] = splitExpense(existing, billedAmount, s.settings.currency)
+      if (remainder.amount <= 0) return s
+      return {
+        ...s,
+        expenses: s.expenses.flatMap(x => x.id === id ? [billed, remainder] : [x]),
+      }
+    })
+  }, [mutate])
+
   const deleteExpense = useCallback((id: string) => {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
@@ -397,7 +436,7 @@ export default function App() {
     const snapshot = buildBreakdown(s.entries.filter(e => entryIds.includes(e.id)), s.services)
     const expensesSnapshot = s.expenses
       .filter(x => expenseIds.includes(x.id))
-      .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0 }))
+      .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0, note: x.note }))
     // Work settled outside traction (cash on the day, an old paper invoice) is
     // dated to when it happened, not today — issuing a 2025 job "today" would
     // land it in the wrong month in Reports.
@@ -583,6 +622,10 @@ export default function App() {
             onAdd={addExpense}
             onUpdate={updateExpense}
             onDelete={deleteExpense}
+            onSettle={settleExpense}
+            onAssign={assignExpense}
+            onSplit={splitExpenseAction}
+            onGoInvoice={goInvoice}
           />
         )}
         {view === 'invoices' && (

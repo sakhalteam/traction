@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
-import type { Expense, TractionState } from '../types'
+import type { Expense, SettledHow, TractionState } from '../types'
 import {
   EXPENSE_CATEGORIES, clientColor, clientFullName, clientShortName,
   formatDate, formatMoney, makeExpense, todayISO,
+  expenseState, isOpenExpense, SETTLED_LABELS, SETTLED_OPTIONS,
 } from '../store'
 import { ClientLabel } from '../Chrome'
 import { supabase } from '../supabaseClient'
@@ -10,46 +11,98 @@ import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../recei
 import { Picker } from './Picker'
 
 export function ExpensesView({
-  state, onAdd, onUpdate, onDelete,
+  state, onAdd, onUpdate, onDelete, onSettle, onAssign, onSplit, onGoInvoice,
 }: {
   state: TractionState
   onAdd: (x: Expense) => void
   onUpdate: (x: Expense) => void
   onDelete: (id: string) => void
+  onSettle: (id: string, how: SettledHow | null, note?: string) => void
+  onAssign: (id: string, clientId: string | null) => void
+  onSplit: (id: string, billedAmount: number) => void
+  onGoInvoice: (clientId?: string) => void
 }) {
   const cur = state.settings.currency
   const [filter, setFilter] = useState<'all' | 'billable' | 'overhead'>('all')
+  /** Which summary tile is opened up to show the expenses behind it. */
+  const [open, setOpen] = useState<'billable' | 'shelf' | null>(null)
 
-  const expenses = useMemo(() => {
+  const byState = useMemo(() => {
+    const groups = { billable: [] as Expense[], shelf: [] as Expense[], settled: [] as Expense[] }
+    for (const x of state.expenses) {
+      const st = expenseState(x)
+      if (st === 'billable' || st === 'shelf' || st === 'settled') groups[st].push(x)
+    }
+    const bydate = (a: Expense, b: Expense) =>
+      a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt
+    groups.billable.sort(bydate)
+    groups.shelf.sort(bydate)
+    return groups
+  }, [state.expenses])
+
+  /**
+   * History is everything already dealt with. What's still open lives in its
+   * own panel above, because an expense you have to decide about is a task,
+   * and a task buried in a chronological log is a task you forget.
+   */
+  const history = useMemo(() => {
     return [...state.expenses]
+      .filter(x => !isOpenExpense(x))
       .filter(x => filter === 'all' ? true : filter === 'billable' ? x.billable : !x.billable)
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt))
   }, [state.expenses, filter])
 
-  const unbilled = state.expenses.filter(x => x.billable && !x.invoiceId).reduce((s, x) => s + x.amount, 0)
-  const overhead = state.expenses.filter(x => !x.billable).reduce((s, x) => s + x.amount, 0)
+  const sum = (list: Expense[]) => list.reduce((s, x) => s + x.amount, 0)
+  const overhead = sum(state.expenses.filter(x => !x.billable))
+  const openList = open === 'billable' ? byState.billable : open === 'shelf' ? byState.shelf : []
+
+  const rowProps = { state, onUpdate, onDelete, onSettle, onAssign, onSplit, onGoInvoice }
 
   return (
     <div className="view">
       <div className="panel">
         <h2>Expenses</h2>
         <p className="hint">
-          Track costs as you incur them. <strong>Billable</strong> ones (materials you pass
-          through) can be added to a client's invoice; <strong>overhead</strong> (gas, gear)
-          stays off invoices and feeds your profit in Reports.
+          Track costs as you incur them. <strong>Billable</strong> ones can go on a client's
+          invoice, be settled another way (cash, a trade, a write-off), or sit on the
+          shelf until you know whose job they belong to. <strong>Overhead</strong> stays
+          off invoices and feeds your profit in Reports.
         </p>
-        <div className="ar-summary two">
-          <div className="ar-tile">
-            <span className="ar-label">Unbilled billable</span>
-            <span className="ar-value">{formatMoney(unbilled, cur)}</span>
-            <span className="ar-sub">ready to put on invoices</span>
-          </div>
+        <div className="ar-summary three">
+          <ExpenseTile
+            label="Ready to bill" amount={sum(byState.billable)} cur={cur}
+            sub={`${byState.billable.length} on a client, not yet invoiced`}
+            open={open === 'billable'} onClick={() => setOpen(o => o === 'billable' ? null : 'billable')}
+            accent
+          />
+          {/* Material you own but haven't attributed. Deliberately its own
+              number: lumping it into "ready to bill" reads as money owed by
+              somebody, and nobody owes it. */}
+          <ExpenseTile
+            label="On the shelf" amount={sum(byState.shelf)} cur={cur}
+            sub={`${byState.shelf.length} bought, no client yet`}
+            open={open === 'shelf'} onClick={() => setOpen(o => o === 'shelf' ? null : 'shelf')}
+          />
           <div className="ar-tile">
             <span className="ar-label">Overhead logged</span>
             <span className="ar-value">{formatMoney(overhead, cur)}</span>
             <span className="ar-sub">your own costs</span>
           </div>
         </div>
+
+        {open && (
+          openList.length === 0 ? (
+            <p className="hint tiny">
+              {open === 'billable'
+                ? 'Nothing waiting to be billed.'
+                : 'Nothing on the shelf. Anything billable with no client lands here.'}
+            </p>
+          ) : (
+            <ul className="entry-list open-expenses">
+              {openList.map(x => <ExpenseRow key={x.id} expense={x} {...rowProps} />)}
+            </ul>
+          )
+        )}
       </div>
 
       <AddExpenseForm state={state} onAdd={onAdd} />
@@ -63,17 +116,37 @@ export function ExpensesView({
             <button className={filter === 'overhead' ? 'active' : ''} onClick={() => setFilter('overhead')}>Overhead</button>
           </div>
         </div>
-        {expenses.length === 0 ? (
-          <p className="hint">No expenses logged yet.</p>
+        <p className="hint tiny">Settled and done — invoiced, paid another way, or your own overhead.</p>
+        {history.length === 0 ? (
+          <p className="hint">Nothing settled yet.</p>
         ) : (
           <ul className="entry-list">
-            {expenses.map(x => (
-              <ExpenseRow key={x.id} expense={x} state={state} onUpdate={onUpdate} onDelete={onDelete} />
-            ))}
+            {history.map(x => <ExpenseRow key={x.id} expense={x} {...rowProps} />)}
           </ul>
         )}
       </div>
     </div>
+  )
+}
+
+/** A summary tile that opens to reveal the expenses behind its number. */
+function ExpenseTile({
+  label, amount, cur, sub, open, onClick, accent,
+}: {
+  label: string; amount: number; cur: string; sub: string
+  open: boolean; onClick: () => void; accent?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`ar-tile tile-btn ${accent ? 'owed' : ''} ${open ? 'open' : ''}`}
+      onClick={onClick}
+      aria-expanded={open}
+    >
+      <span className="ar-label">{label} <span className="tile-caret">{open ? '▾' : '▸'}</span></span>
+      <span className="ar-value">{formatMoney(amount, cur)}</span>
+      <span className="ar-sub">{sub}</span>
+    </button>
   )
 }
 
@@ -147,18 +220,25 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
 }
 
 function ExpenseRow({
-  expense, state, onUpdate, onDelete,
+  expense, state, onUpdate, onDelete, onSettle, onAssign, onSplit, onGoInvoice,
 }: {
   expense: Expense
   state: TractionState
   onUpdate: (x: Expense) => void
   onDelete: (id: string) => void
+  onSettle: (id: string, how: SettledHow | null, note?: string) => void
+  onAssign: (id: string, clientId: string | null) => void
+  onSplit: (id: string, billedAmount: number) => void
+  onGoInvoice: (clientId?: string) => void
 }) {
   const [editing, setEditing] = useState(false)
+  /** Which inline action drawer is open: settle, assign or split. */
+  const [drawer, setDrawer] = useState<'settle' | 'assign' | 'split' | null>(null)
   const cur = state.settings.currency
   const client = expense.clientId ? (state.clients.find(c => c.id === expense.clientId) ?? null) : null
   const clientName = expense.clientId ? clientShortName(client) : null
-  const invoiced = !!expense.invoiceId
+  const st = expenseState(expense)
+  const invoiced = st === 'invoiced'
   const invNum = invoiced ? state.invoices.find(i => i.id === expense.invoiceId)?.number : null
 
   if (editing) {
@@ -170,8 +250,13 @@ function ExpenseRow({
     )
   }
 
+  const toggle = (d: 'settle' | 'assign' | 'split') => setDrawer(v => v === d ? null : d)
+  // The row grows a second line whenever anything renders below it, including
+  // the quiet "put on an invoice" shortcut.
+  const hasDrawer = !!drawer || st === 'billable'
+
   return (
-    <li className="entry-row">
+    <li className={`entry-row ${hasDrawer ? 'has-drawer' : ''} ${drawer ? 'drawer-open' : ''}`}>
       <span className={`expense-badge ${expense.billable ? 'billable' : 'overhead'}`}>{expense.category}</span>
       <div className="entry-main">
         <div className="entry-title">{expense.label || 'Expense'}
@@ -179,23 +264,186 @@ function ExpenseRow({
         </div>
         <div className="entry-sub">
           <span>{formatDate(expense.date)}</span>
-          {expense.billable
-            ? <ClientLabel name={clientName} color={clientColor(client)} />
-            : <span className="client-tag general">Overhead</span>}
+          {!expense.billable
+            ? <span className="client-tag general">Overhead</span>
+            : st === 'shelf'
+              ? <span className="client-tag general" title="Bought, not attributed to a job yet">On the shelf</span>
+              : <ClientLabel name={clientName} color={clientColor(client)} />}
           {invoiced && <span className="invoiced-tag" title="On an invoice">{invNum ?? 'invoiced'}</span>}
+          {expense.settled && (
+            <span className="settled-tag" title={expense.settled.note || 'Closed without an invoice'}>
+              {SETTLED_LABELS[expense.settled.how]}
+            </span>
+          )}
         </div>
       </div>
       <div className="entry-figures">
         <span className="entry-dur">{formatMoney(expense.amount, cur)}</span>
       </div>
       <div className="entry-actions">
-        {/* Receipts stay available even once invoiced — that's exactly when a
+        {/* Receipts stay available even once invoiced — that is exactly when a
             client is most likely to ask for proof of a charge. */}
         <ReceiptControl expense={expense} onUpdate={onUpdate} />
+        {isOpenExpense(expense) && (
+          <>
+            {st === 'shelf' && (
+              <button className="icon-btn" title="Assign to a client" onClick={() => toggle('assign')}>◎</button>
+            )}
+            {st === 'billable' && (
+              <button className="icon-btn" title="Charge only part of this" onClick={() => toggle('split')}>½</button>
+            )}
+            {/* The escape hatch: closed out without ever being invoiced. */}
+            <button className="icon-btn" title="Settle without invoicing" onClick={() => toggle('settle')}>✓</button>
+          </>
+        )}
+        {expense.settled && (
+          <button className="icon-btn" title="Reopen — put it back in the list"
+            onClick={() => onSettle(expense.id, null)}>↺</button>
+        )}
         {!invoiced && <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>}
         {!invoiced && <button className="icon-btn danger" title="Delete" onClick={() => onDelete(expense.id)}>✕</button>}
       </div>
+
+      {drawer === 'settle' && (
+        <SettleDrawer
+          expense={expense}
+          onDone={(how, note) => { onSettle(expense.id, how, note); setDrawer(null) }}
+          onCancel={() => setDrawer(null)}
+        />
+      )}
+      {drawer === 'assign' && (
+        <AssignDrawer
+          state={state}
+          onPick={id => { onAssign(expense.id, id); setDrawer(null) }}
+          onCancel={() => setDrawer(null)}
+        />
+      )}
+      {drawer === 'split' && (
+        <SplitDrawer
+          expense={expense} cur={cur}
+          onSplit={amount => { onSplit(expense.id, amount); setDrawer(null) }}
+          onCancel={() => setDrawer(null)}
+        />
+      )}
+      {st === 'billable' && !drawer && (
+        <div className="row-drawer quiet">
+          <button className="btn ghost tiny" onClick={() => onGoInvoice(expense.clientId ?? undefined)}>
+            Put on an invoice →
+          </button>
+        </div>
+      )}
     </li>
+  )
+}
+
+/**
+ * Close an expense out without an invoice.
+ *
+ * The reasons are named rather than free text alone, because "traded" and
+ * "written off" mean different things six months later and a note by itself
+ * neither sorts nor badges.
+ */
+function SettleDrawer({
+  expense, onDone, onCancel,
+}: {
+  expense: Expense
+  onDone: (how: SettledHow, note: string) => void
+  onCancel: () => void
+}) {
+  const [how, setHow] = useState<SettledHow>('cash')
+  const [note, setNote] = useState(expense.settled?.note ?? '')
+  return (
+    <div className="row-drawer">
+      <span className="drawer-label">Settle without invoicing</span>
+      <div className="settle-opts">
+        {SETTLED_OPTIONS.map(o => (
+          <button key={o} type="button" className={`chip ${how === o ? 'sel' : ''}`}
+            onClick={() => setHow(o)}>{SETTLED_LABELS[o]}</button>
+        ))}
+      </div>
+      <input
+        placeholder="What happened? (optional — e.g. traded for birthday tickets)"
+        value={note} onChange={e => setNote(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') onDone(how, note.trim()) }}
+      />
+      <div className="drawer-actions">
+        <button className="btn primary tiny" onClick={() => onDone(how, note.trim())}>Settle</button>
+        <button className="btn ghost tiny" onClick={onCancel}>Cancel</button>
+      </div>
+      <p className="hint tiny">
+        Stays in history with the amount intact — it just stops waiting to be billed.
+      </p>
+    </div>
+  )
+}
+
+/** Attach a shelf expense to whoever ended up using it. */
+function AssignDrawer({
+  state, onPick, onCancel,
+}: {
+  state: TractionState
+  onPick: (clientId: string) => void
+  onCancel: () => void
+}) {
+  const clients = state.clients.filter(c => !c.archived)
+  return (
+    <div className="row-drawer">
+      <span className="drawer-label">Whose job did this go to?</span>
+      <div className="settle-opts">
+        {clients.map(c => (
+          <button key={c.id} type="button" className="chip" onClick={() => onPick(c.id)}>
+            {clientShortName(c)}
+          </button>
+        ))}
+      </div>
+      <div className="drawer-actions">
+        <button className="btn ghost tiny" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Charge part of an expense now and shelve the rest.
+ *
+ * The remainder becomes an unattributed expense rather than staying on this
+ * client: half a bundle of lumber you did not use is material you own, not
+ * money they still owe.
+ */
+function SplitDrawer({
+  expense, cur, onSplit, onCancel,
+}: {
+  expense: Expense
+  cur: string
+  onSplit: (billedAmount: number) => void
+  onCancel: () => void
+}) {
+  const [amount, setAmount] = useState(() => (expense.amount / 2).toFixed(2))
+  const billed = Math.max(0, Math.min(Number(amount) || 0, expense.amount))
+  const left = Math.round((expense.amount - billed) * 100) / 100
+  const bad = billed <= 0 || left <= 0
+  return (
+    <div className="row-drawer">
+      <span className="drawer-label">Charge only part of {formatMoney(expense.amount, cur)}</span>
+      <div className="split-row">
+        <label className="field narrow-field">
+          <span>Charge them</span>
+          <input type="number" min="0" step="0.01" max={expense.amount}
+            value={amount} onChange={e => setAmount(e.target.value)} />
+        </label>
+        <button type="button" className="btn ghost tiny"
+          onClick={() => setAmount((expense.amount / 2).toFixed(2))}>Half</button>
+        <span className="split-left">{formatMoney(left, cur)} → shelf</span>
+      </div>
+      <div className="drawer-actions">
+        <button className="btn primary tiny" disabled={bad} onClick={() => onSplit(billed)}>Split</button>
+        <button className="btn ghost tiny" onClick={onCancel}>Cancel</button>
+      </div>
+      <p className="hint tiny">
+        Their invoice shows the charge with a note explaining the rest was unused. The
+        remainder goes to the shelf with no client, ready for whoever uses it.
+      </p>
+    </div>
   )
 }
 

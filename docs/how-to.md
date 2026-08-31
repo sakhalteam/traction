@@ -143,6 +143,29 @@ Track costs the moment you incur them — the mirror image of time entries, on t
 - **Two summary tiles:** *Unbilled billable* (materials waiting to go on an invoice) and
   *Overhead logged* (your own costs).
 - **Filter** the history by All / Billable / Overhead.
+**A billable expense has four ways out, not one.** It can go on an invoice, be settled
+another way, sit on the shelf, or be plain overhead:
+
+| | |
+|---|---|
+| **Ready to bill** | On a client, not yet invoiced. Real money to recover. |
+| **On the shelf** | Bought, billable, but no client yet — material you own. Assign it (◎) to whoever ends up using it. |
+| **Settled** | Closed without an invoice: **paid cash**, **traded**, **used it myself**, **written off**. Amount and receipt stay in history; it just stops waiting to be billed. |
+| **Overhead** | Never a client's cost. Feeds profit in Reports. |
+
+- **The two tiles at the top open.** Tap *Ready to bill* or *On the shelf* to see exactly
+  which expenses make up the number, each with its actions.
+- **✓ Settle without invoicing** is the escape hatch for real life — they handed you cash
+  at the door, you swapped it for concert tickets, you ended up using the gravel at your
+  own house, or you have simply given up on it. Pick a reason, add a note if you want.
+  **↺** reopens it if you were wrong.
+- **½ Charge only part of this** splits an expense. Say you bought $77.04 of lumber and
+  only used half on a deck: charge $38.52, and the invoice line reads
+  *"LUMBER — $38.52 of $77.04 total — remainder unused"* so a dispute answers itself.
+  The other $38.52 goes to **the shelf** with no client attached — it is wood you own, not
+  money that client still owes.
+- **History** below is everything already dealt with. What still needs a decision from
+  you lives up top, because a task buried in a chronological log is a task you forget.
 - **Edit / delete** any expense — unless it's already on an invoice (then it's locked,
   same as time entries; delete the invoice to unlock it).
 

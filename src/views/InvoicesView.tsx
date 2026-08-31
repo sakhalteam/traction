@@ -89,8 +89,10 @@ function InvoiceBuilder({
   // Unbilled billable expenses for this client (optionally within range).
   const expCandidates = useMemo(() => {
     if (!clientId) return []
+    // A settled expense is closed — it was paid in cash, traded or written off,
+    // and offering it here again is how it ends up billed twice.
     return state.expenses.filter(x =>
-      x.clientId === clientId && x.billable && !x.invoiceId && inRange(x.date))
+      x.clientId === clientId && x.billable && !x.invoiceId && !x.settled && inRange(x.date))
   }, [state.expenses, clientId, start, end])
 
   const included = candidates.filter(e => !excluded.has(e.id))

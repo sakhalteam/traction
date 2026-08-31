@@ -11,6 +11,7 @@ import type {
   Person,
   Service,
   Settings,
+  SettledHow,
   TimeEntry,
   TractionState,
 } from './types'
@@ -280,6 +281,88 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
   }
 
   return { days, totalSeconds, total: Math.round(total * 100) / 100 }
+}
+
+// ---- Expense state -------------------------------------------------------
+
+/**
+ * Where an expense sits.
+ *
+ *  overhead  — your own cost, never a client's
+ *  shelf     — billable, bought, not yet attributed to anyone. Material you own.
+ *  billable  — billable to a named client and still owed
+ *  invoiced  — frozen onto an invoice
+ *  settled   — closed out without an invoice (cash, trade, personal, write-off)
+ *
+ * `shelf` needs no stored flag: a billable expense with no client CANNOT be put
+ * on anyone's invoice, so that combination already means "material on hand".
+ * Giving it a client is what turns it into money to recover.
+ */
+export type ExpenseState = 'overhead' | 'shelf' | 'billable' | 'invoiced' | 'settled'
+
+export function expenseState(x: Expense): ExpenseState {
+  if (!x.billable) return 'overhead'
+  if (x.invoiceId) return 'invoiced'
+  if (x.settled) return 'settled'
+  return x.clientId ? 'billable' : 'shelf'
+}
+
+/** True when an expense is still waiting on a decision from you. */
+export function isOpenExpense(x: Expense): boolean {
+  const state = expenseState(x)
+  return state === 'billable' || state === 'shelf'
+}
+
+export const SETTLED_LABELS: Record<SettledHow, string> = {
+  cash: 'Paid cash',
+  trade: 'Traded',
+  personal: 'Used it myself',
+  writeoff: 'Written off',
+}
+
+/** The order they're offered in — commonest first. */
+export const SETTLED_OPTIONS: SettledHow[] = ['cash', 'trade', 'personal', 'writeoff']
+
+/**
+ * Split an expense in two: the part you're charging for, and the remainder.
+ *
+ * The billed part keeps the id, the client and any receipt, so an invoice built
+ * from it is unsurprising. The remainder goes to the SHELF — billable, but with
+ * no client — because half a bundle of lumber you didn't use is material you
+ * still own, not money the last client owes you. Attach it to whoever ends up
+ * using it.
+ */
+export function splitExpense(
+  x: Expense, billedAmount: number, currency = '$',
+): [Expense, Expense] {
+  const billed = Math.max(0, Math.min(billedAmount, x.amount))
+  const left = Math.round((x.amount - billed) * 100) / 100
+  // The note is printed on a client's invoice, so it carries the symbol.
+  const money = (n: number) => formatMoney(n, currency)
+  return [
+    {
+      ...x,
+      amount: Math.round(billed * 100) / 100,
+      // Written onto the expense so it survives onto the invoice snapshot and
+      // answers "why was I only charged half?" without anyone having to
+      // remember the conversation.
+      note: [x.note, `${money(billed)} of ${money(x.amount)} total — remainder unused`]
+        .filter(Boolean).join(' · '),
+    },
+    {
+      ...x,
+      id: genId(),
+      amount: left,
+      clientId: null,
+      invoiceId: null,
+      settled: null,
+      // A receipt belongs with the original line, not duplicated onto the offcut.
+      receiptPath: null,
+      note: [x.note, `Unused remainder of ${money(x.amount)} ${x.label || 'expense'}`]
+        .filter(Boolean).join(' · '),
+      createdAt: Date.now(),
+    },
+  ]
 }
 
 // ---- Client names --------------------------------------------------------
@@ -745,6 +828,8 @@ export function hydrateState(raw: unknown): TractionState {
   const expenses = (Array.isArray(r.expenses) ? r.expenses : []).map((x): Expense => ({
     ...x,
     receiptPath: typeof x.receiptPath === 'string' ? x.receiptPath : null,
+    // Absent on everything logged before settling existed.
+    settled: x.settled && typeof x.settled === 'object' ? x.settled : null,
   }))
   const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
     // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.

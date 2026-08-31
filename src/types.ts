@@ -141,6 +141,20 @@ export interface Expense {
   billable: boolean
   /** Set once this expense has been placed on an invoice (billable only). */
   invoiceId: string | null
+  /**
+   * Closed out WITHOUT an invoice: paid in cash, traded, used on your own
+   * place, written off.
+   *
+   * A second way for a billable expense to stop being owed. Without it the only
+   * exits were "invoice it" or "delete it", and deleting loses the record that
+   * you spent the money — which is the one thing worth keeping when the answer
+   * is "they handed me forty bucks" or "I ended up using it at home".
+   *
+   * Deliberately not a `billable: false` flip: overhead means a cost that was
+   * never a client's, and rewriting history to say that would quietly change
+   * what Reports says you spent on your own business.
+   */
+  settled?: { how: SettledHow; note: string; date: string } | null
   note: string
   /**
    * Object path inside the private `receipts` Supabase Storage bucket, e.g.
@@ -154,11 +168,21 @@ export interface Expense {
   createdAt: number
 }
 
+/**
+ * How a billable expense stopped needing to be billed, when it never went on an
+ * invoice. Paid in cash on the doorstep, swapped for something, used on your own
+ * place, or simply given up on.
+ */
+export type SettledHow = 'cash' | 'trade' | 'personal' | 'writeoff'
+
 /** A frozen expense line copied onto an invoice at creation (immutable record). */
 export interface ExpenseLine {
   id: string
   label: string
   amount: number
+  /** Why this line is what it is — "half of $77.04, remainder unused". Printed
+   *  under the label, so a partial charge explains itself years later. */
+  note?: string
 }
 
 export interface Invoice {

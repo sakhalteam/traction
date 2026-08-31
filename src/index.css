@@ -713,11 +713,54 @@ textarea { resize: vertical; }
 
 /* ===== A/R summary ===== */
 .ar-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 640px) { .ar-summary.three { grid-template-columns: 1fr; } }
 .ar-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border); }
 .ar-tile.owed { border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.1); }
 .ar-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
 .ar-value { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ar-sub { font-size: 0.72rem; color: var(--text-faint); }
+.ar-summary.three { grid-template-columns: repeat(3, 1fr); }
+
+/* A summary tile that opens the list behind its number. */
+.tile-btn {
+  text-align: left; cursor: pointer; font: inherit; color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.tile-btn:hover { border-color: var(--border-strong); }
+.tile-btn.open { border-color: rgba(99, 102, 241, 0.55); }
+.tile-caret { color: var(--text-faint); }
+.open-expenses { margin-top: 12px; }
+
+/* Inline drawers on an expense row: settle, assign, split. They span the row's
+   full width beneath it rather than opening a modal — the decision is small and
+   the context you need to make it is the row you are looking at. */
+/* .entry-row is a flex row, so a drawer takes a full-width line by forcing a
+   wrap rather than by spanning a grid column. */
+.entry-row.has-drawer { flex-wrap: wrap; }
+.entry-row.drawer-open { background: rgba(99, 102, 241, 0.06); border-color: rgba(99, 102, 241, 0.3); }
+.row-drawer {
+  flex: 1 0 100%; display: flex; flex-direction: column; gap: 8px;
+  margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.row-drawer.quiet { border-top: none; padding-top: 0; margin-top: 4px; }
+.row-drawer.quiet .btn { align-self: flex-start; }
+.drawer-label {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+}
+.settle-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.settle-opts .chip.sel { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.12); }
+.drawer-actions { display: flex; gap: 8px; }
+.drawer-actions .btn { width: auto; }
+.split-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.split-row .narrow-field { flex: 0 0 130px; }
+.split-left { color: var(--text-dim); font-variant-numeric: tabular-nums; padding-bottom: 9px; }
+
+/* Closed out without an invoice — traded, cash, written off, used yourself. */
+.settled-tag {
+  font-size: 0.7rem; padding: 1px 8px; border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18); color: var(--text-dim);
+  border: 1px dashed var(--border-strong);
+}
 
 .hint.ok { color: var(--accent); }
 .hint.err { color: var(--danger); }

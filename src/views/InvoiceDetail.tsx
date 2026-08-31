@@ -175,7 +175,12 @@ export function InvoiceDetail({
                 {invoice.expensesSnapshot.map(x => (
                   <tr key={x.id}>
                     <td />
-                    <td className="charge-label">{x.label || 'Charge'}</td>
+                    <td className="charge-label">
+                      {x.label || 'Charge'}
+                      {/* A partial charge explains itself on the page, so a
+                          client asking "why only half?" has the answer in hand. */}
+                      {x.note && <span className="line-note"> — {x.note}</span>}
+                    </td>
                     <td className="num" /><td className="num" />
                     <td className="num">{formatMoney(x.amount || 0, settings.currency)}</td>
                   </tr>
