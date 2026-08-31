@@ -644,6 +644,36 @@ check('A settled expense is not offered as an invoice candidate',
   !offered.join(' ').includes('Mulch'), offered.join(' ').slice(0, 90))
 check('An unsettled one still is', offered.join(' ').includes('Lumber'))
 
+// ---- 21. Destructive actions take two taps ------------------------------
+// A real loss: an expense and 1.86h of logged work were deleted by single
+// mistaps on a ✕ sitting one icon away from Settle. Money records must not be
+// one thumb-width from gone.
+await page.locator('.tab', { hasText: 'Expenses' }).click()
+await page.waitForTimeout(600)
+const expensesBefore = (await readState()).expenses.length
+await page.locator('.open-expenses li').first().locator('.icon-btn.danger').click()
+await page.waitForTimeout(400)
+check('One tap on an expense ✕ deletes nothing',
+  (await readState()).expenses.length === expensesBefore)
+check('It arms a confirm instead',
+  (await page.locator('.confirm-del').count()) === 1)
+await page.locator('.confirm-del').click()
+await page.waitForTimeout(400)
+check('The second tap deletes',
+  (await readState()).expenses.length === expensesBefore - 1)
+
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(600)
+const entriesBefore = (await readState()).entries.length
+await page.locator('.entry-row .icon-btn.danger[title="Delete"]').first().click()
+await page.waitForTimeout(400)
+check('One tap on an entry ✕ deletes nothing',
+  (await readState()).entries.length === entriesBefore)
+await page.locator('.confirm-del').first().click()
+await page.waitForTimeout(400)
+check('The second tap deletes the entry',
+  (await readState()).entries.length === entriesBefore - 1)
+
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await browser.close()

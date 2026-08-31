@@ -274,6 +274,14 @@ function ExpenseRow({
   const [editing, setEditing] = useState(false)
   /** Which inline action drawer is open: settle, assign or split. */
   const [drawer, setDrawer] = useState<'settle' | 'assign' | 'split' | null>(null)
+  /**
+   * Deleting an expense takes two taps.
+   *
+   * It sits one icon away from Settle, both are single glyphs, and a thumb on a
+   * phone is wider than either — an expense is money you spent, and losing the
+   * record of it to a mistap is not recoverable from inside the app.
+   */
+  const [confirmDel, setConfirmDel] = useState(false)
   const cur = state.settings.currency
   const client = expense.clientId ? (state.clients.find(c => c.id === expense.clientId) ?? null) : null
   const clientName = expense.clientId ? clientShortName(client) : null
@@ -341,7 +349,16 @@ function ExpenseRow({
             onClick={() => onSettle(expense.id, null)}>↺</button>
         )}
         {!invoiced && <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>}
-        {!invoiced && <button className="icon-btn danger" title="Delete" onClick={() => onDelete(expense.id)}>✕</button>}
+        {!invoiced && (
+          confirmDel
+            ? (
+              <button className="btn danger tiny confirm-del" onClick={() => onDelete(expense.id)}
+                onBlur={() => setConfirmDel(false)}>Really delete?</button>
+            ) : (
+              <button className="icon-btn danger" title="Delete"
+                onClick={() => setConfirmDel(true)}>✕</button>
+            )
+        )}
       </div>
 
       {drawer === 'settle' && (

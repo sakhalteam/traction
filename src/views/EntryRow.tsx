@@ -29,6 +29,8 @@ export function EntryRow({
 }) {
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  /** Deleting logged hours takes two taps — see the expense row for why. */
+  const [confirmDel, setConfirmDel] = useState(false)
   const service = state.services.find(s => s.id === entry.serviceId)
   const client = entry.clientId
     ? (state.clients.find(c => c.id === entry.clientId) ?? null)
@@ -133,7 +135,14 @@ export function EntryRow({
           >✎</button>
         )}
         {!invoiced && !isRunning && (
-          <button className="icon-btn danger" title="Delete" onClick={() => onDelete(entry.id)}>✕</button>
+          confirmDel
+            ? (
+              <button className="btn danger tiny confirm-del" onClick={() => onDelete(entry.id)}
+                onBlur={() => setConfirmDel(false)}>Really delete?</button>
+            ) : (
+              <button className="icon-btn danger" title="Delete"
+                onClick={() => setConfirmDel(true)}>✕</button>
+            )
         )}
       </div>
       {showPhotos && (

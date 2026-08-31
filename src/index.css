@@ -757,6 +757,13 @@ textarea { resize: vertical; }
 .split-left { color: var(--text-dim); font-variant-numeric: tabular-nums; padding-bottom: 9px; }
 
 /* Closed out without an invoice — traded, cash, written off, used yourself. */
+/* The armed state of a two-tap delete. Wider than the icon it replaces on
+   purpose: the confirm must not land under the thumb that just tapped ✕. */
+.confirm-del { width: auto; white-space: nowrap; flex: none; }
+/* A gap before the destructive end of the row, so Settle and Delete are not
+   neighbouring identical glyphs. */
+.entry-actions .icon-btn.danger { margin-left: 6px; }
+
 .settled-tag {
   font-size: 0.7rem; padding: 1px 8px; border-radius: 999px;
   background: rgba(148, 163, 184, 0.18); color: var(--text-dim);

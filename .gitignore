@@ -34,6 +34,7 @@ Toggl_*.csv
 traction-backup-*.json
 traction-import-*.json
 traction-merged-*.json
+traction-repaired-*.json
 
 # Client contact details for the Toggl merge. Real people's home addresses --
 # this repo is public, so they stay on the machine that needs them.
