@@ -729,7 +729,8 @@ textarea { resize: vertical; }
 .tile-btn:hover { border-color: var(--border-strong); }
 .tile-btn.open { border-color: rgba(99, 102, 241, 0.55); }
 .tile-caret { color: var(--text-faint); }
-.open-expenses { margin-top: 12px; }
+.open-expenses { margin-top: 8px; }
+.open-group { margin-top: 12px; display: flex; flex-direction: column; gap: 2px; }
 
 /* Inline drawers on an expense row: settle, assign, split. They span the row's
    full width beneath it rather than opening a modal — the decision is small and

@@ -548,11 +548,30 @@ await page.waitForTimeout(600)
 
 check('Open work is split from the shelf',
   (await page.locator('.tile-btn').count()) === 2)
+
+// REGRESSION: History holds only what has been dealt with, so on a day when
+// every expense is still open the tab looked empty and read as data loss.
+// Open work must be visible without anyone having to tap a tile.
+check('Open expenses are visible without tapping anything',
+  (await page.locator('.open-expenses li').count()) === 3,
+  `${await page.locator('.open-expenses li').count()} rows on arrival`)
+const seeded = await readState()
+const openSeeded = seeded.expenses.filter(x => x.billable && !x.invoiceId && !x.settled)
+const listed = (await page.locator('.open-expenses li').count())
+  + (await page.locator('.panel').filter({ hasText: 'History' }).locator('.entry-list li').count())
+check('Every expense is on screen somewhere, none hidden',
+  listed === seeded.expenses.length,
+  `${listed} shown of ${seeded.expenses.length} (${openSeeded.length} open)`)
+
+// Each tile still toggles, and independently of the other.
 await page.locator('.tile-btn').first().click()
 await page.waitForTimeout(400)
-check('The ready-to-bill tile opens its list',
-  (await page.locator('.open-expenses li').count()) === 2,
-  `${await page.locator('.open-expenses li').count()} rows`)
+check('Collapsing one tile leaves the other alone',
+  (await page.locator('.open-expenses li', { hasText: 'Mulch' }).count()) === 0
+    && (await page.locator('.open-expenses li', { hasText: 'Spare timber' }).count()) === 1)
+await page.locator('.tile-btn').first().click()
+await page.waitForTimeout(400)
+check('And opens again', (await page.locator('.open-expenses li').count()) === 3)
 
 // Settle one without ever invoicing it — the "traded it / they handed me cash"
 // case that previously had no exit but deleting the record.
@@ -569,8 +588,9 @@ check('Settling records how and why',
   settled?.settled?.how === 'trade' && settled.settled.note === 'swapped for concert tickets',
   JSON.stringify(settled?.settled))
 check('The amount is left intact, not zeroed', settled?.amount === 40)
-check('It leaves the ready-to-bill list',
-  (await page.locator('.open-expenses li').count()) === 1)
+check('It leaves the open lists entirely',
+  (await page.locator('.open-expenses li', { hasText: 'Mulch' }).count()) === 0,
+  `${await page.locator('.open-expenses li').count()} open rows left`)
 
 // Split: charge for half the lumber, shelve the offcut.
 await page.locator('.open-expenses li', { hasText: 'Lumber' })
@@ -592,12 +612,15 @@ check('The remainder goes to the shelf, not back on the client',
 check('The billed half explains itself on the invoice',
   /[$]38\.52 of [$]77\.04/.test(billedHalf?.note ?? ''), billedHalf?.note)
 
-// The shelf now holds the original spare plus the offcut.
-await page.locator('.tile-btn').nth(1).click()
-await page.waitForTimeout(500)
-check('The shelf holds unattributed material',
-  (await page.locator('.open-expenses li').count()) === 2,
-  `${await page.locator('.open-expenses li').count()} rows`)
+// The shelf now holds the original spare plus the offcut, and it was already
+// open — no tapping needed to see material you own.
+s = await readState()
+const onShelf = s.expenses.filter(x => x.billable && !x.clientId && !x.invoiceId && !x.settled)
+check('The shelf holds the spare and the offcut', onShelf.length === 2,
+  onShelf.map(x => x.label).join(', '))
+check('Both open lists show at once',
+  (await page.locator('.open-expenses li').count()) === 3,
+  `${await page.locator('.open-expenses li').count()} rows across both groups`)
 
 // Assign a shelf item to whoever ended up using it.
 await page.locator('.open-expenses li', { hasText: 'Spare timber' })

@@ -10,6 +10,9 @@ import { supabase } from '../supabaseClient'
 import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../receipts'
 import { Picker } from './Picker'
 
+/** The two lists of expenses still waiting on a decision. */
+type OpenGroup = 'billable' | 'shelf'
+
 export function ExpensesView({
   state, onAdd, onUpdate, onDelete, onSettle, onAssign, onSplit, onGoInvoice,
 }: {
@@ -24,8 +27,30 @@ export function ExpensesView({
 }) {
   const cur = state.settings.currency
   const [filter, setFilter] = useState<'all' | 'billable' | 'overhead'>('all')
-  /** Which summary tile is opened up to show the expenses behind it. */
-  const [open, setOpen] = useState<'billable' | 'shelf' | null>(null)
+  /**
+   * Which summary tile is opened up to show the expenses behind it.
+   *
+   * Open by default when there is anything open, because History only holds
+   * what has already been dealt with — so on a day when everything is still
+   * waiting to be billed, starting collapsed makes the whole tab look like the
+   * expenses were deleted. Work you have to act on is not something to hide
+   * behind a tap.
+   */
+  const [open, setOpen] = useState<Set<OpenGroup>>(() => {
+    // Both, independently: they are separate lists, and collapsing one to show
+    // the other hides real expenses for no reason. Anything with contents
+    // starts visible.
+    const start = new Set<OpenGroup>()
+    const anyOpen = state.expenses.filter(isOpenExpense)
+    if (anyOpen.some(x => x.clientId)) start.add('billable')
+    if (anyOpen.some(x => !x.clientId)) start.add('shelf')
+    return start
+  })
+  const toggleGroup = (g: OpenGroup) => setOpen(prev => {
+    const next = new Set(prev)
+    next.has(g) ? next.delete(g) : next.add(g)
+    return next
+  })
 
   const byState = useMemo(() => {
     const groups = { billable: [] as Expense[], shelf: [] as Expense[], settled: [] as Expense[] }
@@ -54,7 +79,14 @@ export function ExpensesView({
 
   const sum = (list: Expense[]) => list.reduce((s, x) => s + x.amount, 0)
   const overhead = sum(state.expenses.filter(x => !x.billable))
-  const openList = open === 'billable' ? byState.billable : open === 'shelf' ? byState.shelf : []
+  const openCount = byState.billable.length + byState.shelf.length
+  const groups: { id: OpenGroup; label: string; list: Expense[]; empty: string }[] = [
+    { id: 'billable', label: 'Ready to bill', list: byState.billable,
+      empty: 'Nothing waiting to be billed.' },
+    { id: 'shelf', label: 'On the shelf', list: byState.shelf,
+      empty: 'Nothing on the shelf. Anything billable with no client lands here.' },
+  ]
+  const shown = groups.filter(g => open.has(g.id))
 
   const rowProps = { state, onUpdate, onDelete, onSettle, onAssign, onSplit, onGoInvoice }
 
@@ -72,7 +104,7 @@ export function ExpensesView({
           <ExpenseTile
             label="Ready to bill" amount={sum(byState.billable)} cur={cur}
             sub={`${byState.billable.length} on a client, not yet invoiced`}
-            open={open === 'billable'} onClick={() => setOpen(o => o === 'billable' ? null : 'billable')}
+            open={open.has('billable')} onClick={() => toggleGroup('billable')}
             accent
           />
           {/* Material you own but haven't attributed. Deliberately its own
@@ -81,7 +113,7 @@ export function ExpensesView({
           <ExpenseTile
             label="On the shelf" amount={sum(byState.shelf)} cur={cur}
             sub={`${byState.shelf.length} bought, no client yet`}
-            open={open === 'shelf'} onClick={() => setOpen(o => o === 'shelf' ? null : 'shelf')}
+            open={open.has('shelf')} onClick={() => toggleGroup('shelf')}
           />
           <div className="ar-tile">
             <span className="ar-label">Overhead logged</span>
@@ -90,19 +122,20 @@ export function ExpensesView({
           </div>
         </div>
 
-        {open && (
-          openList.length === 0 ? (
-            <p className="hint tiny">
-              {open === 'billable'
-                ? 'Nothing waiting to be billed.'
-                : 'Nothing on the shelf. Anything billable with no client lands here.'}
-            </p>
-          ) : (
-            <ul className="entry-list open-expenses">
-              {openList.map(x => <ExpenseRow key={x.id} expense={x} {...rowProps} />)}
-            </ul>
-          )
-        )}
+        {shown.map(g => (
+          <div key={g.id} className="open-group">
+            {/* Labelled only when both are showing, so a single list stays
+                attached to the tile it came from without repeating it. */}
+            {shown.length > 1 && <span className="drawer-label">{g.label}</span>}
+            {g.list.length === 0 ? (
+              <p className="hint tiny">{g.empty}</p>
+            ) : (
+              <ul className="entry-list open-expenses">
+                {g.list.map(x => <ExpenseRow key={x.id} expense={x} {...rowProps} />)}
+              </ul>
+            )}
+          </div>
+        ))}
       </div>
 
       <AddExpenseForm state={state} onAdd={onAdd} />
@@ -116,9 +149,16 @@ export function ExpensesView({
             <button className={filter === 'overhead' ? 'active' : ''} onClick={() => setFilter('overhead')}>Overhead</button>
           </div>
         </div>
-        <p className="hint tiny">Settled and done — invoiced, paid another way, or your own overhead.</p>
+        <p className="hint tiny">
+          Settled and done — invoiced, paid another way, or your own overhead.
+          {openCount > 0 && <> Anything still waiting on you is up top, under <strong>
+            {openCount} open</strong>.</>}
+        </p>
         {history.length === 0 ? (
-          <p className="hint">Nothing settled yet.</p>
+          <p className="hint">
+            Nothing settled yet.
+            {openCount > 0 && ` All ${openCount} of your expenses are still open — they're in the tiles above.`}
+          </p>
         ) : (
           <ul className="entry-list">
             {history.map(x => <ExpenseRow key={x.id} expense={x} {...rowProps} />)}

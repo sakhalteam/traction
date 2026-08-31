@@ -153,8 +153,10 @@ another way, sit on the shelf, or be plain overhead:
 | **Settled** | Closed without an invoice: **paid cash**, **traded**, **used it myself**, **written off**. Amount and receipt stay in history; it just stops waiting to be billed. |
 | **Overhead** | Never a client's cost. Feeds profit in Reports. |
 
-- **The two tiles at the top open.** Tap *Ready to bill* or *On the shelf* to see exactly
-  which expenses make up the number, each with its actions.
+- **The two tiles at the top are open by default** whenever they hold anything, and
+  toggle independently. They show exactly which expenses make up each number, with the
+  actions for each. Anything still waiting on a decision is always on screen — History
+  below only holds what has already been dealt with.
 - **✓ Settle without invoicing** is the escape hatch for real life — they handed you cash
   at the door, you swapped it for concert tickets, you ended up using the gravel at your
   own house, or you have simply given up on it. Pick a reason, add a note if you want.
