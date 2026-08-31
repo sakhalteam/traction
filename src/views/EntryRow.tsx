@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import type { TimeEntry, TractionState } from '../types'
 import {
-  formatClock, formatDuration, formatMoney, liveSeconds, lineAmount,
+  formatClock, formatDuration, formatMoney, liveSeconds,
   toLocalInput, fromLocalInput, dateFromEpoch, validateRange, entrySpan, formatTimeOfDay,
-  paymentStateOf, clientColor, clientFullName, clientShortName,
+  paymentStateOf, clientColor, clientFullName, clientShortName, entryAmount, isFlat,
+  SETTLED_TIME_LABELS,
 } from '../store'
 import { useNow } from '../useNow'
 import { ClientLabel } from '../Chrome'
@@ -86,16 +87,25 @@ export function EntryRow({
           {payment === 'invoiced' && (
             <span className="pay-tag invoiced" title="On an invoice, not yet paid">invoiced</span>
           )}
+          {entry.settled && (
+            <span className="settled-tag" title={entry.settled.note || 'Closed without an invoice'}>
+              {SETTLED_TIME_LABELS[entry.settled.how]}
+            </span>
+          )}
         </div>
       </div>
       <div className="entry-figures">
-        <span className="entry-dur">{isRunning ? 'running…' : formatDuration(secs, durationStyle)}</span>
+        <span className="entry-dur">
+          {isRunning ? 'running…'
+            : isFlat(entry) ? `flat · ${formatDuration(secs, durationStyle)}`
+            : formatDuration(secs, durationStyle)}
+        </span>
         {/* Colour is derived from the invoice, so it can never claim "paid"
             about work whose invoice still says draft. */}
         {/* A $0 entry (archived agency work carries no rate) is neither owed nor
             collected — colouring it "unbilled" would imply money to chase. */}
-        <span className={`entry-amt ${entry.rate === 0 ? 'zero' : payment}`}>
-          {formatMoney(lineAmount(secs, entry.rate), state.settings.currency)}
+        <span className={`entry-amt ${entryAmount(entry, secs) === 0 ? 'zero' : payment}`}>
+          {formatMoney(entryAmount(entry, secs), state.settings.currency)}
         </span>
       </div>
       <div className="entry-actions">

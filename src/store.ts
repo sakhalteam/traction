@@ -199,6 +199,23 @@ export function lineAmount(seconds: number, rate: number): number {
   return Math.round((seconds / 3600) * rate * 100) / 100
 }
 
+/**
+ * What one entry is worth. A flat price wins over hours x rate outright —
+ * that's the whole point of agreeing a number instead of a duration.
+ */
+export function entryAmount(
+  e: Pick<TimeEntry, 'seconds' | 'rate' | 'flatAmount'>,
+  seconds = e.seconds,
+): number {
+  if (e.flatAmount != null) return Math.round(e.flatAmount * 100) / 100
+  return lineAmount(seconds, e.rate)
+}
+
+/** True when this entry is priced as a job, not as time. */
+export function isFlat(e: Pick<TimeEntry, 'flatAmount'>): boolean {
+  return e.flatAmount != null
+}
+
 /** Sum of an invoice's frozen expense lines. */
 export function expensesTotal(invoice: Pick<Invoice, 'expensesSnapshot'>): number {
   return Math.round((invoice.expensesSnapshot ?? []).reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100
@@ -215,7 +232,7 @@ export function invoiceTotal(
   const labor = invoice.snapshot
     ? invoice.snapshot.total
     : entries.filter(e => invoice.entryIds.includes(e.id))
-        .reduce((s, e) => s + lineAmount(e.seconds, e.rate), 0)
+        .reduce((s, e) => s + entryAmount(e), 0)
   return Math.round((labor + expensesTotal(invoice)) * 100) / 100
 }
 
@@ -246,10 +263,15 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
 
     for (const e of dayEntries) {
       const secs = liveSeconds(e)
-      const key = `${e.serviceId}::${e.rate}`
+      const flat = isFlat(e)
+      // Flat work never merges with hourly work, and two flat jobs never merge
+      // with each other: their prices were agreed separately and summing them
+      // into one "rate" line would invent an hourly rate nobody agreed to.
+      const key = flat ? `flat::${e.id}` : `${e.serviceId}::${e.rate}`
       const existing = byLine.get(key)
       if (existing) {
         existing.seconds += secs
+        existing.amount += flat ? entryAmount(e) : 0
         if (e.note.trim() && !existing.notes.includes(e.note.trim())) {
           existing.notes.push(e.note.trim())
         }
@@ -259,8 +281,9 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
           serviceName: serviceName(e.serviceId),
           notes: e.note.trim() ? [e.note.trim()] : [],
           seconds: secs,
-          rate: e.rate,
-          amount: 0,
+          rate: flat ? 0 : e.rate,
+          amount: flat ? entryAmount(e) : 0,
+          ...(flat ? { flat: true } : {}),
         })
       }
     }
@@ -269,7 +292,9 @@ export function buildBreakdown(entries: TimeEntry[], services: Service[]): Break
     let daySeconds = 0
     let dayTotal = 0
     for (const line of lines) {
-      line.amount = lineAmount(line.seconds, line.rate)
+      // A flat line already carries its agreed price; only hourly lines are
+      // computed from seconds.
+      if (!line.flat) line.amount = lineAmount(line.seconds, line.rate)
       daySeconds += line.seconds
       dayTotal += line.amount
     }
@@ -316,12 +341,20 @@ export function isOpenExpense(x: Expense): boolean {
 export const SETTLED_LABELS: Record<SettledHow, string> = {
   cash: 'Paid cash',
   trade: 'Traded',
+  gift: 'Gifted',
   personal: 'Used it myself',
   writeoff: 'Written off',
 }
 
 /** The order they're offered in — commonest first. */
-export const SETTLED_OPTIONS: SettledHow[] = ['cash', 'trade', 'personal', 'writeoff']
+export const SETTLED_OPTIONS: SettledHow[] = ['cash', 'trade', 'gift', 'personal', 'writeoff']
+
+/** Hours are given away, not "used yourself" — same list, honest wording. */
+export const SETTLED_TIME_LABELS: Record<SettledHow, string> = {
+  ...SETTLED_LABELS,
+  personal: 'Own place',
+}
+export const SETTLED_TIME_OPTIONS: SettledHow[] = ['gift', 'trade', 'cash', 'writeoff', 'personal']
 
 /**
  * Split an expense in two: the part you're charging for, and the remainder.
@@ -631,10 +664,10 @@ export function nextInvoiceNumber(
 // ---- Payment state --------------------------------------------------------
 
 /** Where an entry sits in the money pipeline: logged → invoiced → collected. */
-export type PaymentState = 'unbilled' | 'invoiced' | 'paid'
+export type PaymentState = 'unbilled' | 'settled' | 'invoiced' | 'paid'
 
 export const PAYMENT_LABELS: Record<PaymentState, string> = {
-  unbilled: 'unbilled', invoiced: 'invoiced', paid: 'paid',
+  unbilled: 'unbilled', settled: 'settled', invoiced: 'invoiced', paid: 'paid',
 }
 
 /**
@@ -647,9 +680,12 @@ export const PAYMENT_LABELS: Record<PaymentState, string> = {
  * invoice's status is the single authority; this just reads it.
  */
 export function paymentStateOf(
-  entry: Pick<TimeEntry, 'invoiceId'>,
+  entry: Pick<TimeEntry, 'invoiceId' | 'settled'>,
   invoices: Pick<Invoice, 'id' | 'status'>[],
 ): PaymentState {
+  // Settled beats unbilled: a gifted hour is dealt with, not money to chase.
+  // It loses to an invoice, since being ON one is the stronger fact.
+  if (!entry.invoiceId && entry.settled) return 'settled'
   if (!entry.invoiceId) return 'unbilled'
   const invoice = invoices.find(i => i.id === entry.invoiceId)
   // A dangling invoiceId means the invoice went missing, not that the work is
@@ -668,18 +704,21 @@ export function paymentStateOf(
  * unbilled.
  */
 export function rollupPaymentState(
-  entries: Pick<TimeEntry, 'invoiceId'>[],
+  entries: Pick<TimeEntry, 'invoiceId' | 'settled'>[],
   invoices: Pick<Invoice, 'id' | 'status'>[],
 ): PaymentState {
   const states = new Set(entries.map(e => paymentStateOf(e, invoices)))
   if (states.has('unbilled')) return 'unbilled'
   if (states.has('invoiced')) return 'invoiced'
+  // Settled outranks paid here only so a day of pure freebies reads as settled
+  // rather than as money collected.
+  if (states.has('settled')) return 'settled'
   return 'paid'
 }
 
 /** True when a group spans more than one payment state — worth flagging in UI. */
 export function isMixedPayment(
-  entries: Pick<TimeEntry, 'invoiceId'>[],
+  entries: Pick<TimeEntry, 'invoiceId' | 'settled'>[],
   invoices: Pick<Invoice, 'id' | 'status'>[],
 ): boolean {
   return new Set(entries.map(e => paymentStateOf(e, invoices))).size > 1
@@ -822,6 +861,8 @@ export function hydrateState(raw: unknown): TractionState {
   const entries = (Array.isArray(r.entries) ? r.entries : []).map((e): TimeEntry => ({
     ...e,
     startedAt: typeof e.startedAt === 'number' ? e.startedAt : null,
+    flatAmount: typeof e.flatAmount === 'number' ? e.flatAmount : null,
+    settled: e.settled && typeof e.settled === 'object' ? e.settled : null,
     // Entries predating job photos have no array at all.
     photoPaths: Array.isArray(e.photoPaths) ? e.photoPaths : [],
   }))
@@ -1091,7 +1132,7 @@ export function entriesToCSV(state: TractionState): string {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt))
     .map(e => [
       e.date, cli(e.clientId), svc(e.serviceId), e.note,
-      decimalHours(e.seconds), e.rate, lineAmount(e.seconds, e.rate), invNum(e.invoiceId),
+      decimalHours(e.seconds), isFlat(e) ? 'flat' : e.rate, entryAmount(e), invNum(e.invoiceId),
     ].map(csvCell).join(','))
   return [header.join(','), ...rows].join('\r\n')
 }

@@ -107,6 +107,27 @@ export interface TimeEntry {
   runningSince: number | null
   /** $/hr snapshotted from the service at creation; edit freely without touching history. */
   rate: number
+  /**
+   * A fixed price for this job, overriding hours x rate entirely.
+   *
+   * For the "I have $200, is that enough?" job: a dump run and a grocery run
+   * where what was agreed is a number, not a duration. Hours may still be
+   * logged and still count in Reports — they just stop deciding the money.
+   *
+   * Lives on the ENTRY rather than the invoice so one invoice can carry both
+   * hourly work and a flat job, which an invoice-level flag could not express.
+   */
+  flatAmount?: number | null
+  /**
+   * Closed out without an invoice: gifted, traded, paid in cash, written off.
+   *
+   * The same idea as the field on Expense. Hours settled this way stay in the
+   * log and keep counting as hours worked, but stop being money owed and are
+   * kept out of earnings — a freebie is not income, and it is also not
+   * something to delete, because "how much have I given away this year" is a
+   * question worth being able to answer.
+   */
+  settled?: { how: SettledHow; note: string; date: string } | null
   /** Set once this entry has been placed on an invoice. */
   invoiceId: string | null
   /**
@@ -173,7 +194,7 @@ export interface Expense {
  * invoice. Paid in cash on the doorstep, swapped for something, used on your own
  * place, or simply given up on.
  */
-export type SettledHow = 'cash' | 'trade' | 'personal' | 'writeoff'
+export type SettledHow = 'cash' | 'trade' | 'gift' | 'personal' | 'writeoff'
 
 /** A frozen expense line copied onto an invoice at creation (immutable record). */
 export interface ExpenseLine {
@@ -293,6 +314,8 @@ export interface BreakdownLine {
   seconds: number
   rate: number
   amount: number
+  /** A fixed-price line: the invoice prints "Flat" where a rate would go. */
+  flat?: boolean
 }
 
 export interface BreakdownDay {

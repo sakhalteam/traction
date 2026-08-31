@@ -236,6 +236,9 @@ textarea { resize: vertical; }
 .total-pill.invoiced { background: rgba(245, 158, 11, 0.14); color: var(--amber); }
 .total-pill.paid { background: rgba(34, 197, 94, 0.14); color: var(--accent); }
 .total-pill.zero { background: rgba(148, 163, 184, 0.12); color: var(--text-faint); }
+/* Settled = dealt with but never money. Muted, and dashed like the expense tag
+   it matches, so it never reads as collected income. */
+.total-pill.settled { background: rgba(148, 163, 184, 0.14); color: var(--text-dim); border: 1px dashed var(--border-strong); }
 /* Dashed ring = this day spans more than one state; the colour is the worst of them. */
 .total-pill.mixed { border: 1px dashed currentColor; padding: 3px 11px; }
 
@@ -284,6 +287,11 @@ textarea { resize: vertical; }
 .ne-svc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ne-dur { color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ne-amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+/* The settle control lives on the line itself, so the grid gains a column. */
+.nudge-entries li { grid-template-columns: auto 9px 1fr auto auto auto; }
+.nudge-entries li.settling { background: rgba(99, 102, 241, 0.08); border-radius: var(--radius-sm); }
+.ne-settle { flex: none; }
+.ne-drawer { grid-column: 1 / -1; margin-top: 4px; }
 .nudge-amt { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.05rem; color: var(--sky); }
 .nudge-row .btn { width: auto; }
 
@@ -390,6 +398,7 @@ textarea { resize: vertical; }
 .entry-amt.invoiced { color: var(--amber); }
 .entry-amt.paid { color: var(--accent); }
 .entry-amt.zero { color: var(--text-faint); }
+.entry-amt.settled { color: var(--text-dim); text-decoration: line-through; text-decoration-thickness: 1px; }
 .entry-actions { display: flex; gap: 2px; }
 
 .client-tag { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; }

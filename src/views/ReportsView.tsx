@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { DurationStyle, TractionState } from '../types'
 import {
-  decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, lineAmount, liveSeconds,
-  monthKey, periodLabel, todayISO, weekStartISO, clientShortName,
+  decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, liveSeconds,
+  monthKey, periodLabel, todayISO, weekStartISO, clientShortName, entryAmount,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
 import { DurationToggle } from './DurationFields'
@@ -87,18 +87,34 @@ export function ReportsView({
   )
 
   // Metric accessors: earnings in dollars, hours in seconds (formatted as h m).
-  const val = (secs: number, rate: number) => metric === 'earnings' ? lineAmount(secs, rate) : secs
+  /**
+   * Hours worked count whatever happened to the money; earnings do not count
+   * work that was given away. A freebie is real time and zero income.
+   */
+  const val = (e: TractionState['entries'][number], secs: number) =>
+    metric === 'earnings' ? (e.settled ? 0 : entryAmount(e, secs)) : secs
   const fmt = (v: number) => metric === 'earnings' ? formatMoney(v, cur) : formatDuration(v, durationStyle)
 
   const totals = useMemo(() => {
-    let earnings = 0, seconds = 0, unbilled = 0
+    let earnings = 0, seconds = 0, unbilled = 0, givenAway = 0, givenSeconds = 0
     for (const e of inRange) {
       const secs = liveSeconds(e)
-      const amt = lineAmount(secs, e.rate)
-      earnings += amt; seconds += secs
+      const amt = entryAmount(e, secs)
+      seconds += secs
+      if (e.settled) {
+        // Not income — but worth counting, because "how much have I given away"
+        // is the reason for keeping these instead of deleting them.
+        givenAway += amt; givenSeconds += secs
+        continue
+      }
+      earnings += amt
       if (!e.invoiceId) unbilled += amt
     }
-    return { earnings: Math.round(earnings * 100) / 100, seconds, unbilled: Math.round(unbilled * 100) / 100 }
+    return {
+      earnings: Math.round(earnings * 100) / 100, seconds,
+      unbilled: Math.round(unbilled * 100) / 100,
+      givenAway: Math.round(givenAway * 100) / 100, givenSeconds,
+    }
   }, [inRange])
 
   const granularity: 'day' | 'week' | 'month' = useMemo(() => {
@@ -112,7 +128,7 @@ export function ReportsView({
     const sums = new Map<string, number>()
     for (const e of inRange) {
       const key = granularity === 'month' ? monthKey(e.date) : granularity === 'week' ? weekStartISO(e.date) : e.date
-      sums.set(key, (sums.get(key) ?? 0) + val(liveSeconds(e), e.rate))
+      sums.set(key, (sums.get(key) ?? 0) + val(e, liveSeconds(e)))
     }
     return enumerate(from, to, granularity).map(key => ({
       key, label: periodLabel(key, granularity), value: sums.get(key) ?? 0,
@@ -122,7 +138,7 @@ export function ReportsView({
 
   const serviceSlices: Slice[] = useMemo(() => {
     const sums = new Map<string, number>()
-    for (const e of inRange) sums.set(e.serviceId, (sums.get(e.serviceId) ?? 0) + val(liveSeconds(e), e.rate))
+    for (const e of inRange) sums.set(e.serviceId, (sums.get(e.serviceId) ?? 0) + val(e, liveSeconds(e)))
     return [...sums.entries()]
       .map(([id, value]) => {
         const svc = state.services.find(s => s.id === id)
@@ -145,7 +161,7 @@ export function ReportsView({
     const sums = new Map<string, number>()
     for (const e of inRange) {
       const key = e.clientId ?? 'general'
-      sums.set(key, (sums.get(key) ?? 0) + val(liveSeconds(e), e.rate))
+      sums.set(key, (sums.get(key) ?? 0) + val(e, liveSeconds(e)))
     }
     const all = [...sums.entries()]
       .map(([key, value]) => ({
@@ -237,6 +253,14 @@ export function ReportsView({
           <StatTile label="Unbilled" value={formatMoney(totals.unbilled, cur)} />
           <StatTile label="Avg rate" value={`${formatMoney(avgRate, cur)}/hr`} />
         </div>
+        {/* Only when there is some — an always-on zero would read as a nag. */}
+        {totals.givenAway > 0 && (
+          <p className="hint tiny">
+            Plus <strong>{formatMoney(totals.givenAway, cur)}</strong> across{' '}
+            {formatDuration(totals.givenSeconds, durationStyle)} given away — gifted,
+            traded or written off. Counted as hours worked, not as income.
+          </p>
+        )}
       </div>
 
       <div className="panel">
@@ -332,7 +356,7 @@ function serviceBreakdownRows(entries: TractionState['entries'], state: Traction
   for (const e of entries) {
     const secs = liveSeconds(e)
     const cur = map.get(e.serviceId) ?? { seconds: 0, earnings: 0 }
-    cur.seconds += secs; cur.earnings += lineAmount(secs, e.rate)
+    cur.seconds += secs; cur.earnings += e.settled ? 0 : entryAmount(e, secs)
     map.set(e.serviceId, cur)
   }
   return [...map.entries()]

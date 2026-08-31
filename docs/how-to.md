@@ -104,6 +104,11 @@ Your home base for tracking live work.
   date, service, note, hours and amount — then tap again to close it. Same scrutiny
   the invoice builder gives you, without leaving the timer.
 
+> 💡 **The tab is in the URL.** Each tab sets a hash (`…/traction/#expenses`), so a
+> refresh lands you back where you were and the back button walks the tabs. It's a hash
+> rather than a real path because GitHub Pages serves static files — a real path would
+> 404 on refresh.
+
 > 💡 **A running timer follows you.** Switch to Invoices or Expenses and a slim green
 > bar stays pinned to the bottom of the screen with the live clock, the running
 > amount, and a **■** to stop it. Tap the bar itself to jump back to the Timer. The
@@ -114,6 +119,16 @@ Your home base for tracking live work.
 
 Every entry, grouped by date, newest first — your full history and manual-entry tool.
 
+- **Flat price:** for the "I have $200, is that enough?" job. Type a flat price on a
+  manual entry and it bills that number whatever the clock says — the invoice prints
+  **Flat rate** instead of inventing an hourly one. The time is still logged and still
+  counts as hours worked in Reports. It lives on the *entry*, so one invoice can carry
+  both hourly work and a flat job.
+- **Giving work away:** open a client in **Ready to invoice** and hit **✓** on any single
+  entry to close it out without invoicing — *gifted, traded, paid cash, written off,
+  own place*. The hours stay in your log and still count as hours worked; they stop
+  being money owed and are kept out of earnings, because a freebie is not income.
+  Reports shows the running total you have given away.
 - **+ Manual entry:** forgot to run the timer? Add time by hand — service, client,
   **date, start time and end time**, rate, note. The times you type are the times that
   print on the invoice, so a client never reads a start you weren't there for. Typing a

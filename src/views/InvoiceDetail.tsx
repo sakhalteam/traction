@@ -148,8 +148,14 @@ export function InvoiceDetail({
                         </span>
                       </span>
                     </td>
-                    <td className="num">{formatDuration(line.seconds, durationStyle)}</td>
-                    <td className="num">{formatMoney(line.rate, settings.currency)}</td>
+                    <td className="num">
+                      {line.seconds > 0 ? formatDuration(line.seconds, durationStyle) : '—'}
+                    </td>
+                    {/* An agreed price has no rate to show, and inventing one
+                        from hours would misstate what was agreed. */}
+                    <td className="num">
+                      {line.flat ? 'Flat rate' : formatMoney(line.rate, settings.currency)}
+                    </td>
                     <td className="num">{formatMoney(line.amount, settings.currency)}</td>
                   </tr>
                 ))}

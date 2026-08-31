@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
-  buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, lineAmount, todayISO,
-  agingOf, AGING_LABELS, nextInvoiceNumber, clientFullName, type AgingBucket,
+  buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, todayISO,
+  agingOf, AGING_LABELS, nextInvoiceNumber, clientFullName, entryAmount, isFlat,
+  type AgingBucket,
 } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 import { Picker } from './Picker'
@@ -82,8 +83,10 @@ function InvoiceBuilder({
   // Unbilled, finalized time entries for this client (optionally within range).
   const candidates = useMemo(() => {
     if (!clientId) return []
+    // A settled entry was gifted, traded or written off — offering it again is
+    // how a freebie ends up on an invoice.
     return state.entries.filter(e =>
-      e.clientId === clientId && !e.invoiceId && !e.runningSince && inRange(e.date))
+      e.clientId === clientId && !e.invoiceId && !e.runningSince && !e.settled && inRange(e.date))
   }, [state.entries, clientId, start, end])
 
   // Unbilled billable expenses for this client (optionally within range).
@@ -166,8 +169,10 @@ function InvoiceBuilder({
                           <input type="checkbox" checked={inc} onChange={() => toggle(e.id)} />
                           <span className="cand-date">{formatDate(e.date)}</span>
                           <span className="cand-svc">{svc?.name ?? '—'}{e.note ? ` · ${e.note}` : ''}</span>
-                          <span className="cand-dur">{formatDuration(secs, durationStyle)}</span>
-                          <span className="cand-amt">{formatMoney(lineAmount(secs, e.rate), cur)}</span>
+                          <span className="cand-dur">
+                            {isFlat(e) ? 'flat' : formatDuration(secs, durationStyle)}
+                          </span>
+                          <span className="cand-amt">{formatMoney(entryAmount(e, secs), cur)}</span>
                         </label>
                       </li>
                     )

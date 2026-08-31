@@ -24,6 +24,14 @@ import { InvoicesView } from './views/InvoicesView'
 import { ReportsView } from './views/ReportsView'
 import { SettingsView } from './views/SettingsView'
 
+/** Tabs the hash is allowed to name — anything else is ignored, not trusted. */
+const VIEWS: View[] = ['timer', 'clients', 'services', 'expenses', 'invoices', 'reports', 'settings']
+
+function viewFromHash(): View | null {
+  const raw = window.location.hash.replace(/^#\/?/, '')
+  return (VIEWS as string[]).includes(raw) ? (raw as View) : null
+}
+
 /** Warn if a timer's been running longer than this (forgot-to-stop). */
 const RUNAWAY_SECONDS = 8 * 3600
 
@@ -31,7 +39,29 @@ const REMOTE_SAVE_DELAY = 4000
 
 export default function App() {
   const [state, setStateRaw] = useState<TractionState>(loadLocal)
-  const [view, setView] = useState<View>('timer')
+  /**
+   * The tab, mirrored into the URL hash.
+   *
+   * A hash rather than a real path (/traction/expenses) because this is served
+   * from GitHub Pages: static hosting has nothing to rewrite an unknown path
+   * to, so a refresh on a real path 404s. The hash survives a reload, makes the
+   * back button walk tabs, and lets a phone reopen the app where it was left.
+   */
+  const [view, setView] = useState<View>(() => viewFromHash() ?? 'timer')
+
+  useEffect(() => {
+    if (viewFromHash() !== view) window.location.hash = view
+  }, [view])
+
+  // Back/forward and a hand-edited hash both drive the tab.
+  useEffect(() => {
+    const onHash = () => {
+      const next = viewFromHash()
+      if (next) setView(next)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
   /** Client to preselect the next time the invoice builder opens, if any. */
   const [invoiceClient, setInvoiceClient] = useState<string | null>(null)
 
@@ -303,13 +333,14 @@ export default function App() {
     if (doomed) await deleteReceipt(supabase, doomed)
   }, [mutate])
   const addManualEntry = useCallback((
-    serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string,
+    serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number,
+    note: string, flatAmount: number | null = null,
   ) => {
     // A hand-logged entry now carries a real wall-clock start, so the times
     // printed on an invoice are the times you were actually there.
     const e = {
       ...makeEntry(serviceId, rate, clientId, dateFromEpoch(startedAt), startedAt),
-      seconds, note,
+      seconds, note, flatAmount,
     }
     mutate(s => ({ ...s, entries: [...s.entries, e] }))
   }, [mutate])
@@ -405,6 +436,23 @@ export default function App() {
       entries: s.entries.map(e => e.id === id && e.runningSince
         ? { ...e, seconds: e.seconds + Math.max(0, Math.floor((now - e.runningSince) / 1000)), runningSince: null }
         : e),
+    }))
+  }, [mutate])
+
+  /**
+   * Close hours out without an invoice — a freebie, a trade, a cash job.
+   *
+   * A settlement rather than a deletion, because "how many hours have I given
+   * away this year" is a real question and the only way to answer it is to
+   * still have the entries.
+   */
+  const settleEntry = useCallback((id: string, how: SettledHow | null, note = '') => {
+    mutate(s => ({
+      ...s,
+      entries: s.entries.map(e => e.id !== id || e.invoiceId ? e : {
+        ...e,
+        settled: how ? { how, note, date: todayISO() } : null,
+      }),
     }))
   }, [mutate])
 
@@ -597,6 +645,7 @@ export default function App() {
             onAttachPhoto={attachEntryPhoto}
             onRemovePhoto={removeEntryPhoto}
             onToggleFavorite={toggleFav}
+            onSettleEntry={settleEntry}
           />
         )}
         {view === 'clients' && (

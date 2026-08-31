@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Client, Person, Service, TractionState } from '../types'
 import {
-  formatDuration, formatMoney, liveSeconds, lineAmount,
+  formatDuration, formatMoney, liveSeconds, entryAmount,
   clientInvoiceCode, compactDate, normalizeInvoiceCode, todayISO, INVOICE_SEQ_PAD,
   CLIENT_COLORS, clientColor,
   clientFullName, clientShortName, clientSortKey, hasStructuredName, splitLegacyName,
@@ -26,9 +26,10 @@ export function ClientsView({
   const durationStyle = state.settings.durationFormat ?? 'hm'
 
   function unbilled(clientId: string) {
-    const entries = state.entries.filter(e => e.clientId === clientId && !e.invoiceId && !e.runningSince)
+    const entries = state.entries.filter(e =>
+      e.clientId === clientId && !e.invoiceId && !e.runningSince && !e.settled)
     const seconds = entries.reduce((s, e) => s + liveSeconds(e), 0)
-    const amount = entries.reduce((s, e) => s + lineAmount(liveSeconds(e), e.rate), 0)
+    const amount = entries.reduce((s, e) => s + entryAmount(e, liveSeconds(e)), 0)
     return { seconds, amount, count: entries.length }
   }
 
@@ -45,7 +46,7 @@ export function ClientsView({
       if (e.clientId !== clientId) continue
       const cur = totals.get(e.serviceId) ?? { seconds: 0, amount: 0 }
       cur.seconds += liveSeconds(e)
-      cur.amount += lineAmount(liveSeconds(e), e.rate)
+      cur.amount += entryAmount(e, liveSeconds(e))
       totals.set(e.serviceId, cur)
     }
     return [...totals.entries()]

@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import type { Client, DurationStyle, Service, TimeEntry, TractionState } from '../types'
+import type { Client, DurationStyle, Service, SettledHow, TimeEntry, TractionState } from '../types'
 import {
   formatClock, formatDate, formatDuration, formatMoney, liveSeconds, lineAmount, resolveRate, todayISO,
   paymentStateOf, rollupPaymentState, isMixedPayment, daysBetween, jobKey, isFavorite,
   clientColor, epochFromDateTime, toTimeInput, validateRange, dateFromEpoch,
-  clientFullName, clientShortName,
+  clientFullName, clientShortName, entryAmount, isFlat,
+  SETTLED_TIME_LABELS, SETTLED_TIME_OPTIONS,
   type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
@@ -39,6 +40,7 @@ const NUDGE_AFTER_DAYS = 3
 
 const PAY_HINT: Record<PaymentState, string> = {
   unbilled: "Not on an invoice yet — this is money you still have to bill",
+  settled: 'Closed without an invoice — gifted, traded or written off',
   invoiced: 'On an invoice, waiting to be paid',
   paid: "Paid — you've collected this",
 }
@@ -46,6 +48,7 @@ const PAY_HINT: Record<PaymentState, string> = {
 export function TimerView({
   state, onStart, onStop, onUpdateEntry, onDeleteEntry, onAddManual, onAddService, onAddClient,
   onGoInvoice, onAttachPhoto, onRemovePhoto, onToggleFavorite, onSetDurationFormat,
+  onSettleEntry,
 }: {
   state: TractionState
   onGoInvoice: (clientId?: string) => void
@@ -55,11 +58,12 @@ export function TimerView({
   onStop: (id: string) => void
   onUpdateEntry: (e: TimeEntry) => void
   onDeleteEntry: (id: string) => void
-  onAddManual: (serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string) => void
+  onAddManual: (serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string, flatAmount?: number | null) => void
   onAddService: (name: string, rate: number) => Service
   onAddClient: (name: string) => Client
   onToggleFavorite: (serviceId: string, clientId: string | null) => void
   onSetDurationFormat: (style: DurationStyle) => void
+  onSettleEntry: (id: string, how: SettledHow | null, note?: string) => void
 }) {
   const services = state.services.filter(s => !s.archived)
   const clients = state.clients.filter(c => !c.archived)
@@ -117,7 +121,7 @@ export function TimerView({
     return {
       count: all.length,
       seconds: all.reduce((s, e) => s + liveSeconds(e, now), 0),
-      amount: all.reduce((s, e) => s + lineAmount(liveSeconds(e, now), e.rate), 0),
+      amount: all.reduce((s, e) => s + entryAmount(e, liveSeconds(e, now)), 0),
     }
   }, [byDate, now])
 
@@ -131,9 +135,12 @@ export function TimerView({
     const byClient = new Map<string, { amount: number; oldest: string; entries: TimeEntry[] }>()
     for (const e of state.entries) {
       // Rate 0 is archived/unrated work — there's nothing to bill for it.
-      if (!e.clientId || e.invoiceId || e.runningSince || e.rate === 0) continue
+      if (!e.clientId || e.invoiceId || e.runningSince || e.settled) continue
+      // Rate 0 is archived/unrated work — nothing to bill, unless a flat price
+      // was agreed, which is exactly the case that has no rate.
+      if (e.rate === 0 && !isFlat(e)) continue
       const cur = byClient.get(e.clientId) ?? { amount: 0, oldest: e.date, entries: [] }
-      cur.amount += lineAmount(e.seconds, e.rate)
+      cur.amount += entryAmount(e)
       cur.entries.push(e)
       if (e.date < cur.oldest) cur.oldest = e.date
       byClient.set(e.clientId, cur)
@@ -416,18 +423,13 @@ export function TimerView({
                   {open && (
                     <ul className="nudge-entries">
                       {c.entries.map(e => (
-                        <li key={e.id}>
-                          <span className="ne-date">{formatDate(e.date).replace(/,.*$/, '')}</span>
-                          <span className="chip-dot" style={{
-                            background: state.services.find(s => s.id === e.serviceId)?.color ?? '#64748b',
-                          }} />
-                          <span className="ne-svc">
-                            {state.services.find(s => s.id === e.serviceId)?.name ?? 'Unknown'}
-                            {e.note && <span className="dim"> · {e.note}</span>}
-                          </span>
-                          <span className="ne-dur">{formatDuration(e.seconds, durationStyle)}</span>
-                          <span className="ne-amt">{formatMoney(lineAmount(e.seconds, e.rate), state.settings.currency)}</span>
-                        </li>
+                        <NudgeEntry
+                          key={e.id}
+                          entry={e}
+                          state={state}
+                          durationStyle={durationStyle}
+                          onSettle={onSettleEntry}
+                        />
                       ))}
                     </ul>
                   )}
@@ -471,6 +473,7 @@ export function TimerView({
             <select value={filterPayment} onChange={e => setFilterPayment(e.target.value as PaymentState | '')}>
               <option value="">Any</option>
               <option value="unbilled">● Unbilled — still to bill</option>
+              <option value="settled">● Settled — gifted, traded, written off</option>
               <option value="invoiced">● Invoiced — awaiting payment</option>
               <option value="paid">● Paid — collected</option>
             </select>
@@ -499,7 +502,7 @@ export function TimerView({
       ) : (
         byDate.map(([date, entries]) => {
           const daySecs = entries.reduce((s, e) => s + liveSeconds(e, now), 0)
-          const dayAmt = entries.reduce((s, e) => s + lineAmount(liveSeconds(e, now), e.rate), 0)
+          const dayAmt = entries.reduce((s, e) => s + entryAmount(e, liveSeconds(e, now)), 0)
           // Least-settled state wins, so a day with anything still to bill can't
           // read as collected. Mixed days say so rather than hiding it.
           const dayState = rollupPaymentState(entries, state.invoices)
@@ -549,19 +552,92 @@ function roundTo5(ms: number): number {
   return Math.floor(ms / 300_000) * 300_000
 }
 
+/**
+ * One line of work inside an opened "Ready to invoice" row.
+ *
+ * Carries its own settle control, because the moment you are looking at the
+ * hours behind a number is exactly the moment you notice the one you meant to
+ * give away. Sending someone to another screen to deal with it is how it ends
+ * up on the invoice by accident.
+ */
+function NudgeEntry({
+  entry, state, durationStyle, onSettle,
+}: {
+  entry: TimeEntry
+  state: TractionState
+  durationStyle: DurationStyle
+  onSettle: (id: string, how: SettledHow | null, note?: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [how, setHow] = useState<SettledHow>('gift')
+  const [note, setNote] = useState('')
+  const service = state.services.find(s => s.id === entry.serviceId)
+
+  return (
+    <li className={open ? 'settling' : ''}>
+      <span className="ne-date">{formatDate(entry.date).replace(/,.*$/, '')}</span>
+      <span className="chip-dot" style={{ background: service?.color ?? '#64748b' }} />
+      <span className="ne-svc">
+        {service?.name ?? 'Unknown'}
+        {entry.note && <span className="dim"> · {entry.note}</span>}
+      </span>
+      <span className="ne-dur">
+        {isFlat(entry) ? 'flat' : formatDuration(entry.seconds, durationStyle)}
+      </span>
+      <span className="ne-amt">{formatMoney(entryAmount(entry), state.settings.currency)}</span>
+      <button
+        className="icon-btn ne-settle"
+        title="Close this out without invoicing"
+        aria-expanded={open}
+        onClick={() => setOpen(v => !v)}
+      >✓</button>
+
+      {open && (
+        <div className="row-drawer ne-drawer">
+          <span className="drawer-label">Close this out without invoicing</span>
+          <div className="settle-opts">
+            {SETTLED_TIME_OPTIONS.map(o => (
+              <button key={o} type="button" className={`chip ${how === o ? 'sel' : ''}`}
+                onClick={() => setHow(o)}>{SETTLED_TIME_LABELS[o]}</button>
+            ))}
+          </div>
+          <input
+            placeholder="Why? (optional — e.g. quick freebie while I was there)"
+            value={note} onChange={e => setNote(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') onSettle(entry.id, how, note.trim()) }}
+          />
+          <div className="drawer-actions">
+            <button className="btn primary tiny" onClick={() => onSettle(entry.id, how, note.trim())}>
+              Close it out
+            </button>
+            <button className="btn ghost tiny" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+          <p className="hint tiny">
+            The hours stay in your log and still count as hours worked. They stop being
+            money owed, and are left out of earnings — a freebie is not income.
+          </p>
+        </div>
+      )}
+    </li>
+  )
+}
+
 function ManualEntryForm({
   state, durationStyle, onSetDurationFormat, onAdd,
 }: {
   state: TractionState
   durationStyle: DurationStyle
   onSetDurationFormat: (style: DurationStyle) => void
-  onAdd: (serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string) => void
+  onAdd: (serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number, note: string, flatAmount?: number | null) => void
 }) {
   const services = state.services.filter(s => !s.archived)
   const [serviceId, setServiceId] = useState('')
   const [clientId, setClientId] = useState('')
   const [rate, setRate] = useState('')
   const [note, setNote] = useState('')
+  /** A price agreed for the job, replacing hours x rate. */
+  const [flat, setFlat] = useState('')
+  const flatOn = flat.trim() !== ''
 
   /**
    * Day, start clock and end clock are three separate controls, and the day is
@@ -600,8 +676,11 @@ function ManualEntryForm({
   const effectiveRate = rate !== '' ? Number(rate) : resolveRate(selected, selectedClient)
 
   function submit() {
-    if (!serviceId || problem || startedAt == null || secs <= 0) return
-    onAdd(serviceId, clientId || null, startedAt, secs, effectiveRate, note.trim())
+    // A flat job may legitimately have no hours at all — the price is the point.
+    if (!serviceId || problem || startedAt == null) return
+    if (!flatOn && secs <= 0) return
+    onAdd(serviceId, clientId || null, startedAt, secs, effectiveRate, note.trim(),
+      flatOn ? Number(flat) || 0 : null)
   }
 
   return (
@@ -637,7 +716,12 @@ function ManualEntryForm({
         <DurationFields seconds={secs} style={durationStyle} onChange={setDuration} />
         <label className="field narrow-field"><span>Rate /hr</span>
           <input type="number" min="0" placeholder={String(resolveRate(selected, selectedClient))}
-            value={rate} onChange={e => setRate(e.target.value)} /></label>
+            value={rate} onChange={e => setRate(e.target.value)} disabled={flatOn} /></label>
+        {/* "I have $200, is that enough?" — the money was agreed as a number,
+            so the hours stop deciding it. Leave blank to bill by the hour. */}
+        <label className="field narrow-field"><span>Flat price</span>
+          <input type="number" min="0" step="0.01" placeholder="hourly"
+            value={flat} onChange={e => setFlat(e.target.value)} /></label>
         <div className="field format-field">
           <span>Show hours as</span>
           <DurationToggle value={durationStyle} onChange={onSetDurationFormat} />
@@ -648,7 +732,14 @@ function ManualEntryForm({
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></label>
       </div>
       {problem && <p className="hint tiny err">{problem.message}</p>}
-      <button className="btn primary" disabled={!serviceId || !!problem || secs <= 0} onClick={submit}>
+      {flatOn && (
+        <p className="hint tiny">
+          Flat price — this bills {formatMoney(Number(flat) || 0, state.settings.currency)} whatever
+          the hours say. The time is still logged and still counts in Reports.
+        </p>
+      )}
+      <button className="btn primary"
+        disabled={!serviceId || !!problem || (!flatOn && secs <= 0)} onClick={submit}>
         Add entry
       </button>
     </div>

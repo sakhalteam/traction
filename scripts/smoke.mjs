@@ -280,9 +280,14 @@ await page.waitForTimeout(400)
 s = await readState()
 check('Toggle writes the app-wide setting', s.settings.durationFormat === 'decimal',
   `got ${s.settings.durationFormat}`)
-check('Decimal mode collapses to one hours field',
-  await page.locator('.manual-form input[type="number"]').count() === 2,
-  'hours + rate, no minutes box')
+// Assert the shape, not a count of every number box on the form — the form has
+// gained fields since (a flat price) and a raw count silently went stale.
+// innerText is the RENDERED text, which CSS uppercases — compare in one case.
+const manualLabels = (await page.locator('.manual-form .field > span').allInnerTexts())
+  .map(t => t.trim().toLowerCase())
+check('Decimal mode collapses Hours and Minutes into one field',
+  manualLabels.includes('hours') && !manualLabels.includes('minutes'),
+  manualLabels.join(', '))
 
 const dayHead = await page.locator('.panel-head h3', { hasText: '·' }).first().innerText()
 check('Time log reads in decimal', /\d+(\.\d+)?h$/.test(dayHead.trim()), `header reads "${dayHead}"`)
@@ -673,6 +678,114 @@ await page.locator('.confirm-del').first().click()
 await page.waitForTimeout(400)
 check('The second tap deletes the entry',
   (await readState()).entries.length === entriesBefore - 1)
+
+// ---- 22. The tab lives in the URL --------------------------------------
+await page.locator('.tab', { hasText: 'Expenses' }).click()
+await page.waitForTimeout(400)
+check('The tab is mirrored into the hash',
+  (await page.evaluate(() => location.hash)) === '#expenses',
+  await page.evaluate(() => location.hash))
+await page.reload()
+await page.waitForTimeout(900)
+check('A refresh lands back on the same tab',
+  (await page.locator('.tab.active').innerText()).includes('Expenses'),
+  await page.locator('.tab.active').innerText())
+await page.goBack()
+await page.waitForTimeout(600)
+check('Back walks the tabs', !(await page.locator('.tab.active').innerText()).includes('Expenses'))
+await page.evaluate(() => { location.hash = 'nonsense' })
+await page.waitForTimeout(400)
+check('A junk hash is ignored, not rendered',
+  (await page.locator('.view').count()) > 0)
+
+// ---- 23. Flat-rate work -------------------------------------------------
+// "I have $200, is that enough?" — the money was agreed as a number, so hours
+// stop deciding it, but the job still belongs in the log.
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(600)
+await page.locator('button', { hasText: '+ Manual entry' }).click()
+await page.waitForTimeout(400)
+const mf = page.locator('.manual-form')
+await mf.locator('.picker-trigger').first().click()
+await page.waitForTimeout(300)
+await page.locator('.picker-row', { hasText: 'Mowing & edging' }).click()
+await page.waitForTimeout(300)
+await mf.locator('.picker-trigger').nth(1).click()
+await page.waitForTimeout(300)
+await page.locator('.picker-row', { hasText: 'Vasquez' }).click()
+await page.waitForTimeout(300)
+await mf.locator('input[placeholder="hourly"]').fill('200')
+await page.waitForTimeout(300)
+check('Setting a flat price disables the hourly rate',
+  await mf.locator('input[placeholder]').nth(0).isDisabled() ||
+  await mf.locator('.narrow-field input[type="number"]').nth(2).isDisabled(),
+  'rate field locked')
+await mf.locator('button', { hasText: 'Add entry' }).click()
+await page.waitForTimeout(600)
+s = await readState()
+const flatEntry = s.entries.find(e => e.flatAmount === 200)
+check('A flat job is stored as a price, not a rate', !!flatEntry,
+  JSON.stringify(flatEntry && { flat: flatEntry.flatAmount, rate: flatEntry.rate }))
+
+// It prices at the agreed number no matter what the clock says.
+const flatShown = await page.locator('.entry-row', { hasText: 'Mowing & edging' })
+  .filter({ hasText: 'flat' }).first().innerText()
+check('The log prices it at the agreed number', flatShown.includes('$200.00'),
+  flatShown.split('\n').join(' ').slice(0, 70))
+
+// And the invoice says Flat rate rather than inventing an hourly one.
+await page.locator('.tab', { hasText: 'Invoices' }).click()
+await page.waitForTimeout(600)
+await page.locator('.picker-trigger').first().click()
+await page.waitForTimeout(400)
+await page.locator('.picker-row', { hasText: 'Vasquez' }).click()
+await page.waitForTimeout(600)
+await page.locator('button', { hasText: 'Create invoice' }).click()
+await page.waitForTimeout(900)
+const sheet = await page.locator('.invoice-table').innerText()
+check('The invoice prints "Flat rate" instead of a made-up hourly rate',
+  sheet.includes('Flat rate'), sheet.split('\n').slice(0, 6).join(' | '))
+check('And the flat amount is the total', sheet.includes('$200.00'))
+
+// ---- 24. Gifted hours are dealt with, and are not income ----------------
+await page.locator('.tab', { hasText: 'Timer' }).click()
+await page.waitForTimeout(700)
+const before = (await readState()).entries.filter(e => e.settled).length
+// Target a specific known entry (2h of gutters, $170) rather than whichever
+// happens to sort first — an arbitrary pick made this assert against a
+// zero-length entry and hid what it was meant to check.
+const nudge = page.locator('.nudge-item', { hasText: 'Okonkwo' })
+await nudge.locator('.nudge-who').click()
+await page.waitForTimeout(500)
+await nudge.locator('.nudge-entries li', { hasText: 'gutters' }).locator('.ne-settle').click()
+await page.waitForTimeout(400)
+await page.locator('.ne-drawer .chip', { hasText: 'Gifted' }).click()
+await page.locator('.ne-drawer input').fill('quick freebie')
+await page.locator('.ne-drawer button', { hasText: 'Close it out' }).click()
+await page.waitForTimeout(600)
+s = await readState()
+const freebies = s.entries.filter(e => e.settled)
+check('Closing an entry out records how and why',
+  freebies.length === before + 1 && freebies.some(e => e.settled.how === 'gift'),
+  JSON.stringify(freebies.map(e => e.settled?.how)))
+const gift = freebies.find(e => e.settled.how === 'gift')
+check('The hours survive — a freebie is a record, not a deletion',
+  gift.seconds > 0, `${gift.seconds}s kept`)
+// Gifting the oldest entry can retire the whole client from the nudge, which
+// is correct — what is left is not old unbilled work any more.
+const panel = await page.locator('.nudge-panel').innerText().catch(() => '')
+check('The gifted hours leave the ready-to-invoice panel', !panel.includes('gutters'),
+  panel.split(String.fromCharCode(10)).join(' ').slice(0, 80))
+check('And their money stops being counted as owed', !panel.includes('170.00'))
+
+// Reports: hours yes, earnings no.
+await page.locator('.tab', { hasText: 'More' }).click()
+await page.waitForTimeout(300)
+await page.locator('.more-row', { hasText: 'Reports' }).click()
+await page.waitForTimeout(900)
+const reportText = await page.locator('.view').innerText()
+check('Reports calls out what was given away', /given away/i.test(reportText),
+  (reportText.match(/Plus[^.]*given away[^.]*/i) ?? ['not found'])[0].slice(0, 90))
 
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
