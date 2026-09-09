@@ -23,9 +23,10 @@ import { ExpensesView } from './views/ExpensesView'
 import { InvoicesView } from './views/InvoicesView'
 import { ReportsView } from './views/ReportsView'
 import { SettingsView } from './views/SettingsView'
+import { HelpView } from './views/HelpView'
 
 /** Tabs the hash is allowed to name — anything else is ignored, not trusted. */
-const VIEWS: View[] = ['timer', 'clients', 'services', 'expenses', 'invoices', 'reports', 'settings']
+const VIEWS: View[] = ['timer', 'clients', 'services', 'expenses', 'invoices', 'reports', 'settings', 'help']
 
 function viewFromHash(): View | null {
   const raw = window.location.hash.replace(/^#\/?/, '')
@@ -703,6 +704,8 @@ export default function App() {
             onSetDurationFormat={setDurationFormat}
           />
         )}
+
+        {view === 'help' && <HelpView />}
       </main>
 
       {/* The running clock follows you across every tab except the one that

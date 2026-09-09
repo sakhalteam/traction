@@ -1,5 +1,10 @@
 # traction — the complete how-to guide
 
+> **The live version of this lives in the app.** Open the **Help** tab (right of
+> Settings) for the same material, always matching the build you are running.
+> This file is the long-form copy kept with the source.
+
+
 Everything traction does, why it works the way it does, and step-by-step recipes
 for the real jobs you'll run. Written for a solo landscaping / pressure-washing
 business (Friendly Pressure), but it works for any hourly trade.

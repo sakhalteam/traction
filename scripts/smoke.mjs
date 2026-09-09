@@ -783,9 +783,46 @@ await page.locator('.tab', { hasText: 'More' }).click()
 await page.waitForTimeout(300)
 await page.locator('.more-row', { hasText: 'Reports' }).click()
 await page.waitForTimeout(900)
+// All time, not the default "this month": the seeded entry is 10 days old, so
+// which month it lands in depends on what day the suite happens to run.
+await page.locator('.range-chip', { hasText: 'All time' }).click()
+await page.waitForTimeout(700)
 const reportText = await page.locator('.view').innerText()
 check('Reports calls out what was given away', /given away/i.test(reportText),
-  (reportText.match(/Plus[^.]*given away[^.]*/i) ?? ['not found'])[0].slice(0, 90))
+  (reportText.split(String.fromCharCode(10)).find(l => /given away/i.test(l)) ?? 'not found').slice(0, 95))
+
+// ---- 25. The how-to page ------------------------------------------------
+await page.locator('.tab', { hasText: 'More' }).click()
+await page.waitForTimeout(300)
+await page.locator('.more-row', { hasText: 'Help' }).click()
+await page.waitForTimeout(700)
+check('Help is reachable and owns a hash',
+  (await page.evaluate(() => location.hash)) === '#help')
+const helpSections = await page.locator('.help-section').count()
+const helpItems = await page.locator('.help-item').count()
+check('It covers every tab', helpSections >= 8, `${helpSections} sections`)
+check('With real content, not headings alone', helpItems >= 40, `${helpItems} entries`)
+check('Contents links match the sections',
+  (await page.locator('.help-toc .chip').count()) === helpSections)
+
+// Every jump link must resolve — a contents entry pointing at nothing is worse
+// than no contents at all.
+const orphans = await page.evaluate(() => {
+  const ids = new Set([...document.querySelectorAll('.help-section')].map(n => n.id))
+  return [...document.querySelectorAll('.help-toc .chip')]
+    .map(a => a.getAttribute('href')?.slice(1) ?? '')
+    .filter(id => !ids.has(id))
+})
+check('No contents link points at a missing section', orphans.length === 0, orphans.join(', '))
+
+// The features Nic most wanted to be able to look up.
+const helpText = (await page.locator('.help-view').innerText()).toLowerCase()
+for (const topic of ['flat price', 'given away', 'on the shelf', 'invoice code',
+                     'pill colour', 'really delete', 'share']) {
+  check(`How-to explains "${topic}"`, helpText.includes(topic))
+}
+check('Help does not overflow a phone',
+  !(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)))
 
 check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 

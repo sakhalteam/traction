@@ -5,7 +5,7 @@ import type { ClientColor } from './store'
 
 // The old separate 'log' view is gone — the Timer screen IS the log now, the
 // way Toggl's home screen works: timer on top, date-grouped history below.
-export type View = 'timer' | 'clients' | 'services' | 'expenses' | 'invoices' | 'reports' | 'settings'
+export type View = 'timer' | 'clients' | 'services' | 'expenses' | 'invoices' | 'reports' | 'settings' | 'help'
 
 /**
  * 'pulled' = this device adopted a newer copy from the cloud.
@@ -25,6 +25,8 @@ const ICONS: Record<View, ReactNode> = {
   invoices: <><path d="M6 2h9l4 4v16l-3-1.5L13 22l-3-1.5L7 22l-1-.5z" /><path d="M9 8h6M9 12h6M9 16h4" /></>,
   reports: <><path d="M4 20V4M4 20h16" /><path d="M8 20v-6M13 20V8M18 20v-9" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.2 2.2M16.9 16.9l2.2 2.2M19.1 4.9l-2.2 2.2M7.1 16.9l-2.2 2.2" /></>,
+  // An open book, in the same single-weight line language as the rest.
+  help: <><path d="M12 6.5C10.5 5 8.5 4.5 4 4.5v13c4.5 0 6.5.5 8 2 1.5-1.5 3.5-2 8-2v-13c-4.5 0-6.5.5-8 2z" /><path d="M12 6.5v13" /></>,
 }
 
 function icon(id: View) {
@@ -37,8 +39,13 @@ function icon(id: View) {
 }
 
 const NAV: NavItem[] = (
-  ['timer', 'expenses', 'clients', 'services', 'invoices', 'reports', 'settings'] as View[]
+  ['timer', 'expenses', 'clients', 'services', 'invoices', 'reports', 'settings', 'help'] as View[]
 ).map(id => ({ id, label: id[0].toUpperCase() + id.slice(1), icon: icon(id) }))
+
+/** The nav glyph for a tab, so other screens can label themselves with it. */
+export function navIcon(id: View) {
+  return icon(id)
+}
 
 /**
  * What earns a slot in the mobile tab bar: the things you do standing in a yard.
@@ -46,7 +53,7 @@ const NAV: NavItem[] = (
  * keeps every primary target wide enough to hit with one thumb.
  */
 const PHONE_TABS: View[] = ['timer', 'expenses', 'invoices', 'clients']
-const MORE_TABS: View[] = ['services', 'reports', 'settings']
+const MORE_TABS: View[] = ['services', 'reports', 'settings', 'help']
 
 export function Chrome({
   view, onNav, user, onLogin, onLogout, cloudStatus, running,

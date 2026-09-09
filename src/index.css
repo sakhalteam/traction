@@ -1349,6 +1349,42 @@ textarea { resize: vertical; }
 
 .share-msg { max-width: 860px; margin: 0 auto 10px; }
 
+/* ===== How-to page ===== */
+.help-view .panel { scroll-margin-top: 78px; }
+.help-toc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.help-toc .chip { text-decoration: none; }
+
+.help-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.help-head h3 { margin: 0 0 2px; }
+.help-icon {
+  flex: none; width: 34px; height: 34px; display: flex; align-items: center;
+  justify-content: center; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: rgba(148, 163, 184, 0.1);
+  color: var(--accent);
+}
+.help-icon svg { width: 19px; height: 19px; }
+
+/* A definition list, so each entry is a name and its explanation rather than a
+   paragraph you have to read all of to find the one line you wanted. */
+.help-list { margin: 0; display: flex; flex-direction: column; gap: 14px; }
+.help-item { display: flex; flex-direction: column; gap: 3px; }
+.help-item dt { font-weight: 650; font-size: 0.95rem; }
+.help-item dd {
+  margin: 0; color: var(--text-dim); font-size: 0.9rem; line-height: 1.55;
+}
+.help-item dd strong { color: var(--text); font-weight: 600; }
+.help-item dd em { color: var(--text); font-style: normal; opacity: 0.85; }
+
+/* Glyphs shown the way they appear on a button, so the page points at
+   something findable rather than describing it. */
+.help-key {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; padding: 1px 6px; margin: 0 1px;
+  border-radius: 6px; border: 1px solid var(--border-strong);
+  background: rgba(148, 163, 184, 0.14); color: var(--text);
+  font-family: inherit; font-size: 0.85em; line-height: 1.5;
+}
+
 /* ===== Invoice on a phone =====
    Five monospaced columns cannot fit 390px, and a table that overflows silently
    drops RATE and AMOUNT off the right edge — the two numbers the whole document
