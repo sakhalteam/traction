@@ -1,7 +1,7 @@
 /**
  * Render traction's app icons to PNG with no image dependencies.
  *
- * The icon is a stopwatch: a gradient ring (the brand's green → indigo) with a
+ * The icon is a stopwatch drawn in adhdo's idiom, so the two sit together on a
  * hand pointing up-right, on the app's own near-black navy. Everything is drawn
  * inside the middle 64% of the canvas so the same art is safe as a `maskable`
  * icon, where Android may crop to a circle of 80% diameter.
@@ -66,52 +66,84 @@ function encodePNG(width, height, rgba) {
 
 // ---- Drawing -------------------------------------------------------------
 
-const BG = [0x0b, 0x11, 0x20]
+/* Colours. The background and its two washes are adhdo's, to the byte — these
+ * apps sit next to each other on a home screen and should read as a set. The
+ * mark keeps traction's own green → indigo, so the family is the backdrop and
+ * the hue is the identity. */
+const BG = [0x0a, 0x0a, 0x1a]
 const GREEN = [0x22, 0xc5, 0x5e]
 const INDIGO = [0x63, 0x66, 0xf1]
-const WHITE = [0xf5, 0xf9, 0xff]
+const WHITE = [0xff, 0xff, 0xff]
 
 const lerp = (a, b, t) => a + (b - a) * t
 const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+const clamp01 = v => Math.max(0, Math.min(1, v))
 
 /** Shortest distance from point p to segment ab — used for the rounded hand. */
 function distToSegment(px, py, ax, ay, bx, by) {
   const dx = bx - ax
   const dy = by - ay
   const len2 = dx * dx + dy * dy
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2))
+  const t = len2 === 0 ? 0 : clamp01(((px - ax) * dx + (py - ay) * dy) / len2)
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 }
 
 /**
- * Colour of the icon at a point, in canvas-relative units (0..1 on both axes).
- * Returns [r, g, b] — the icon is fully opaque, so alpha is handled by the
- * caller only where we deliberately fade.
+ * Paint one shape the way adhdo paints a glob: a halo that falls off as the
+ * square of the distance, then a core with a soft edge rather than a hard one.
+ * `d` is a signed distance — negative inside the shape, in canvas units.
  */
-function sample(u, v) {
-  // Base: the app's background, warmed by the same corner glows the UI uses.
-  const glowA = Math.max(0, 1 - Math.hypot(u - 0.15, v - 0.0) / 0.9)
-  const glowB = Math.max(0, 1 - Math.hypot(u - 1.0, v - 0.1) / 0.85)
-  let c = mix(BG, GREEN, glowA * glowA * 0.16)
-  c = mix(c, INDIGO, glowB * glowB * 0.2)
-
-  const cx = 0.5
-  const cy = 0.5
-  const d = Math.hypot(u - cx, v - cy)
-
-  // Ring — gradient runs left→right, matching the `.brand` text gradient.
-  const rOuter = 0.32
-  const rInner = 0.242
-  if (d <= rOuter && d >= rInner) {
-    return mix(GREEN, INDIGO, Math.min(1, Math.max(0, (u - 0.18) / 0.64)))
+function paint(c, d, color, { soft, glow, glowStrength = 0.4 }) {
+  let out = c
+  if (d < glow) {
+    const halo = 1 - Math.max(0, d) / glow
+    out = mix(out, color, halo * halo * glowStrength)
   }
+  const edge = clamp01(-d / soft)
+  if (edge > 0) out = mix(out, color, edge)
+  return out
+}
 
-  // Hand: from the centre up and to the right, like a stopwatch at ~10 seconds.
-  const angle = -Math.PI / 3 // up-right
-  const handLen = 0.185
-  const hx = cx + Math.cos(angle) * handLen
-  const hy = cy + Math.sin(angle) * handLen
-  if (distToSegment(u, v, cx, cy, hx, hy) <= 0.031) return WHITE
+// Stopwatch geometry, all inside the middle 64% so the art survives a
+// `maskable` crop to a circle of 80% diameter.
+const CX = 0.5
+const CY = 0.515
+const RING = 0.278 // centreline radius
+const RING_HALF = 0.036 // half thickness
+const HAND_ANGLE = -Math.PI / 3 // up-right, a stopwatch at about ten seconds
+const HAND_LEN = 0.2
+const HX = CX + Math.cos(HAND_ANGLE) * HAND_LEN
+const HY = CY + Math.sin(HAND_ANGLE) * HAND_LEN
+
+/** Colour of the icon at a point, in canvas-relative units (0..1 both axes). */
+function sample(u, v) {
+  // Nebula: adhdo's two washes, re-tinted to traction's pair.
+  const washA = Math.max(0, 1 - Math.hypot((u - 0.2) / 0.9, (v - 0.0) / 0.55))
+  const washB = Math.max(0, 1 - Math.hypot((u - 0.9) / 0.85, (v - 1.0) / 0.55))
+  let c = mix(BG, INDIGO, washA * washA * 0.2)
+  c = mix(c, GREEN, washB * washB * 0.14)
+
+  // The gradient the whole case is cut from — ring and crown share it, so the
+  // crown reads as part of the watch rather than a violet pin above it.
+  const caseColor = mix(GREEN, INDIGO, clamp01((u - 0.18) / 0.64))
+
+  // Crown, drawn first and started *inside* the ring so the ring caps it.
+  const stem = distToSegment(u, v, CX, CY - RING + 0.01, CX, CY - RING - 0.062) - 0.032
+  c = paint(c, stem, caseColor, { soft: 0.018, glow: 0.055, glowStrength: 0.28 })
+
+  // Ring. The gradient runs left → right, matching the `.brand` text.
+  const ring = Math.abs(Math.hypot(u - CX, v - CY) - RING) - RING_HALF
+  c = paint(c, ring, caseColor, { soft: 0.02, glow: 0.075, glowStrength: 0.34 })
+
+  // Hand, then the pivot over it so the join is a single soft blob.
+  const hand = distToSegment(u, v, CX, CY, HX, HY) - 0.026
+  c = paint(c, hand, WHITE, { soft: 0.016, glow: 0.05, glowStrength: 0.22 })
+
+  const pivot = Math.hypot(u - CX, v - CY) - 0.052
+  c = paint(c, pivot, WHITE, { soft: 0.02, glow: 0.07, glowStrength: 0.26 })
+  // Inner highlight, offset up-left, to give the pivot a little volume.
+  const hi = Math.hypot(u - (CX - 0.016), v - (CY - 0.017))
+  if (hi < 0.03) c = mix(c, WHITE, (1 - hi / 0.03) * 0.5)
 
   return c
 }
