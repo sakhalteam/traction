@@ -332,8 +332,25 @@ export function expenseState(x: Expense): ExpenseState {
   return x.clientId ? 'billable' : 'shelf'
 }
 
+/**
+ * True once this piece has been merged back into a sibling.
+ *
+ * An absorbed row is history, not an expense: its money now lives on the
+ * survivor. Every list, total and picker filters these out — go through
+ * `liveExpenses` rather than reading `state.expenses` directly.
+ */
+export function isAbsorbed(x: Expense): boolean {
+  return !!x.absorbedInto
+}
+
+/** Every expense that still represents real money. The default list to read. */
+export function liveExpenses(expenses: Expense[]): Expense[] {
+  return expenses.filter(x => !isAbsorbed(x))
+}
+
 /** True when an expense is still waiting on a decision from you. */
 export function isOpenExpense(x: Expense): boolean {
+  if (isAbsorbed(x)) return false
   const state = expenseState(x)
   return state === 'billable' || state === 'shelf'
 }
@@ -372,30 +389,176 @@ export function splitExpense(
   const left = Math.round((x.amount - billed) * 100) / 100
   // The note is printed on a client's invoice, so it carries the symbol.
   const money = (n: number) => formatMoney(n, currency)
+  // Inherited, never regenerated: a piece cut off a piece is still part of the
+  // original roll, so re-splitting must not strand it in a lineage of its own.
+  const lineageId = x.lineageId ?? genId()
   return [
     {
       ...x,
+      lineageId,
       amount: Math.round(billed * 100) / 100,
       // Written onto the expense so it survives onto the invoice snapshot and
       // answers "why was I only charged half?" without anyone having to
       // remember the conversation.
-      note: [x.note, `${money(billed)} of ${money(x.amount)} total — remainder unused`]
+      note: [stripSplitNote(x.note), `${money(billed)} of ${money(x.amount)} total — remainder unused`]
         .filter(Boolean).join(' · '),
     },
     {
       ...x,
       id: genId(),
+      lineageId,
       amount: left,
       clientId: null,
       invoiceId: null,
       settled: null,
-      // A receipt belongs with the original line, not duplicated onto the offcut.
-      receiptPath: null,
-      note: [x.note, `Unused remainder of ${money(x.amount)} ${x.label || 'expense'}`]
+      absorbedInto: null,
+      // Both halves point at the SAME stored photo. One purchase produced one
+      // receipt, and the offcut needs it just as much as the billed piece —
+      // the photo is only deleted once the last piece referencing it is gone.
+      receiptPath: x.receiptPath,
+      note: [stripSplitNote(x.note), `Unused remainder of ${money(x.amount)} ${x.label || 'expense'}`]
         .filter(Boolean).join(' · '),
       createdAt: Date.now(),
     },
   ]
+}
+
+/**
+ * Cut an expense into `n` equal pieces.
+ *
+ * Material is bought in units you think about as fractions — a bucket of zinc
+ * that treats five roofs, 300yd of fabric across three jobs — and getting
+ * there by halving twice both misstates the pieces and is a chore. The first
+ * piece keeps the id, client and receipt; the rest go to the shelf, so
+ * splitting something already on the shelf leaves every piece on the shelf.
+ *
+ * Rounding is dealt to the FIRST piece rather than spread, so the pieces
+ * always sum to exactly the original and none of them is a fraction of a cent.
+ */
+export function splitExpenseEqually(x: Expense, n: number, currency = '$'): Expense[] {
+  const parts = Math.max(2, Math.min(Math.floor(n), 24))
+  const cents = Math.round(x.amount * 100)
+  const base = Math.floor(cents / parts)
+  const remainder = cents - base * parts
+  const lineageId = x.lineageId ?? genId()
+  const money = (n2: number) => formatMoney(n2, currency)
+  const baseNote = stripSplitNote(x.note)
+  const now = Date.now()
+
+  return Array.from({ length: parts }, (_, i) => {
+    const amount = (base + (i === 0 ? remainder : 0)) / 100
+    const note = [baseNote, `1/${parts} of ${money(x.amount)} ${x.label || 'expense'}`]
+      .filter(Boolean).join(' · ')
+    if (i === 0) return { ...x, lineageId, amount, note }
+    return {
+      ...x,
+      id: genId(),
+      lineageId,
+      amount,
+      clientId: null,
+      invoiceId: null,
+      settled: null,
+      absorbedInto: null,
+      receiptPath: x.receiptPath,
+      note,
+      createdAt: now + i,
+    }
+  })
+}
+
+/**
+ * Put sibling pieces back together.
+ *
+ * `survivor` keeps the id, the client and the receipt and takes on the whole
+ * amount. The others are ABSORBED rather than deleted — see `Expense.absorbedInto`
+ * for why a delete here would be unsafe under the merge — with their amount
+ * zeroed so no total can count the same money twice.
+ *
+ * Callers must have established that every piece shares a lineage; this
+ * refuses the merge outright rather than trusting them, because two different
+ * brands of the same material becoming one row is a mistake you only discover
+ * standing in somebody's yard.
+ */
+export function recombineExpenses(
+  survivor: Expense, absorbed: Expense[], currency = '$',
+): Expense[] | null {
+  if (absorbed.length === 0) return null
+  if (!survivor.lineageId) return null
+  if (absorbed.some(x => x.lineageId !== survivor.lineageId)) return null
+  if (absorbed.some(x => x.id === survivor.id)) return null
+  // Anything frozen onto an invoice has to be detached first — that is a
+  // decision about a document a client has seen, never a side effect of a drag.
+  if (survivor.invoiceId || absorbed.some(x => x.invoiceId)) return null
+  if (isAbsorbed(survivor) || absorbed.some(isAbsorbed)) return null
+
+  const cents = [survivor, ...absorbed].reduce((s, x) => s + Math.round(x.amount * 100), 0)
+  const total = cents / 100
+  const money = (n: number) => formatMoney(n, currency)
+  const pieces = absorbed.length + 1
+
+  return [
+    {
+      ...survivor,
+      amount: total,
+      // The old note said "remainder unused", which stops being true the moment
+      // the remainder is back. Leaving it would print a lie on an invoice.
+      note: [stripSplitNote(survivor.note), `Recombined ${money(total)} from ${pieces} pieces`]
+        .filter(Boolean).join(' · '),
+    },
+    ...absorbed.map(x => ({
+      ...x,
+      absorbedInto: survivor.id,
+      absorbedAmount: x.amount,
+      amount: 0,
+      note: [stripSplitNote(x.note), `Merged back into ${survivor.label || 'its sibling'}`]
+        .filter(Boolean).join(' · '),
+    })),
+  ]
+}
+
+/**
+ * Drop the fragments this module writes onto notes when it cuts something up.
+ *
+ * Split notes describe a relationship ("remainder unused") that a later split
+ * or a recombine makes false. Anything the user typed is left alone.
+ */
+export function stripSplitNote(note: string): string {
+  return (note ?? '')
+    .split(' · ')
+    .filter(part => !/^(\S.*? of \S+ total — remainder unused|Unused remainder of |1\/\d+ of |Recombined \S+ from \d+ pieces|Merged back into )/.test(part.trim()))
+    .filter(part => !/ of \S+ total — remainder unused$/.test(part.trim()))
+    .join(' · ')
+}
+
+/**
+ * The visible mark two siblings share.
+ *
+ * The question actually asked of the shelf is "can these two snap together?",
+ * which is a matching question — so colour carries it at a glance and the code
+ * settles it when two lineages land on similar hues. Deliberately a different
+ * SHAPE from a client pill so it can never be misread as a client.
+ */
+export function lineageMark(lineageId: string): { code: string; hue: number } {
+  let h = 0
+  for (let i = 0; i < lineageId.length; i++) h = (h * 31 + lineageId.charCodeAt(i)) >>> 0
+  return { code: lineageId.replace(/[^a-z0-9]/gi, '').slice(0, 4).toUpperCase(), hue: h % 360 }
+}
+
+/** The other live pieces cut from the same original purchase. */
+export function siblingsOf(x: Expense, all: Expense[]): Expense[] {
+  if (!x.lineageId) return []
+  return all.filter(o => o.id !== x.id && o.lineageId === x.lineageId && !isAbsorbed(o))
+}
+
+/**
+ * How many live expenses still point at a stored photo.
+ *
+ * Splitting shares one receipt across every piece, so deleting a piece must not
+ * delete the image out from under its siblings — only the last one out turns
+ * off the light.
+ */
+export function receiptRefCount(path: string, all: Expense[]): number {
+  return all.filter(x => x.receiptPath === path && !isAbsorbed(x)).length
 }
 
 // ---- Client names --------------------------------------------------------
@@ -871,6 +1034,12 @@ export function hydrateState(raw: unknown): TractionState {
     receiptPath: typeof x.receiptPath === 'string' ? x.receiptPath : null,
     // Absent on everything logged before settling existed.
     settled: x.settled && typeof x.settled === 'object' ? x.settled : null,
+    // Absent on everything logged before the shelf could cut things up. Only a
+    // real string counts as a lineage: a stray `true` or `0` from a hand-edited
+    // blob would otherwise let unrelated material recombine.
+    ...(typeof x.lineageId === 'string' && x.lineageId ? { lineageId: x.lineageId } : {}),
+    absorbedInto: typeof x.absorbedInto === 'string' ? x.absorbedInto : null,
+    ...(typeof x.absorbedAmount === 'number' ? { absorbedAmount: x.absorbedAmount } : {}),
   }))
   const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
     // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.

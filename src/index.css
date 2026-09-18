@@ -41,6 +41,17 @@
 
 html, body, #root { min-height: 100%; margin: 0; }
 
+/* The header is sticky and the phone tab bar is fixed, so anything scrolled
+   to an edge of the viewport arrives underneath one of them — a Settle button
+   at the foot of a long drawer lands behind the tab bar and cannot be tapped.
+   scroll-padding on the scroll container keeps EVERY scroll-into-view clear of
+   both edges at once, which is what per-element scroll-margin cannot do: the
+   thing being scrolled to is usually a button nobody thought to annotate. */
+html {
+  scroll-padding-top: 76px;
+  scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 20px);
+}
+
 body {
   background:
     radial-gradient(1200px 700px at 15% -10%, rgba(34, 197, 94, 0.12), transparent 60%),
@@ -931,6 +942,123 @@ textarea { resize: vertical; }
   .reports-controls { flex-direction: column; align-items: stretch; }
 }
 
+
+/* ===== The shelf: subcards, dragging, lineage ===== */
+
+/* Ready-to-bill is money somebody owes you (indigo, like every other "owed"
+   figure in the app). The shelf is material you own — a different KIND of
+   number, so it gets its own colour rather than a shade of the same one. */
+.tile-btn.tone-shelf { border-color: rgba(167, 139, 250, 0.4); background: rgba(167, 139, 250, 0.1); }
+.tile-btn.tone-shelf.open { border-color: rgba(167, 139, 250, 0.7); }
+.tile-btn.tone-shelf .ar-value { color: #ddd6fe; }
+
+.group-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-top: 12px;
+  background: rgba(15, 23, 42, 0.35);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.group-shelf { border-color: rgba(167, 139, 250, 0.32); background: rgba(167, 139, 250, 0.05); }
+.group-billable { border-color: rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.05); }
+
+.group-head {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; background: none; border: 0; cursor: pointer;
+  color: var(--text); font: inherit; text-align: left;
+}
+.group-caret { color: var(--text-faint); width: 10px; }
+.group-title { font-weight: 600; font-size: 0.9rem; letter-spacing: 0.01em; }
+.group-shelf .group-title { color: #ddd6fe; }
+.group-billable .group-title { color: #c7d2fe; }
+.group-count {
+  font-size: 0.72rem; color: var(--text-dim); background: rgba(148, 163, 184, 0.16);
+  border-radius: 999px; padding: 1px 8px;
+}
+.group-total { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.group-empty { padding: 0 12px 12px; margin: 0; }
+.group-card .entry-list { padding: 0 8px 8px; }
+
+/* While something is in the air every card advertises itself, and the one
+   under the finger lights up — a drop with no visible target is a guess. */
+.group-card.drop-armed { border-style: dashed; }
+.group-card.drop-active {
+  border-style: solid;
+  border-color: rgba(167, 139, 250, 0.9);
+  background: rgba(167, 139, 250, 0.14);
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.45), 0 8px 30px -12px rgba(167, 139, 250, 0.6);
+}
+.group-billable.drop-active {
+  border-color: rgba(99, 102, 241, 0.9);
+  background: rgba(99, 102, 241, 0.14);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.45), 0 8px 30px -12px rgba(99, 102, 241, 0.6);
+}
+
+.entry-row.draggable { cursor: grab; }
+.entry-row.is-dragging { opacity: 0.35; }
+/* The piece you are hovering a sibling over. Reads as "these two would join". */
+.entry-row.merge-target {
+  outline: 2px solid rgba(167, 139, 250, 0.85);
+  outline-offset: -2px;
+  background: rgba(167, 139, 250, 0.12);
+}
+.entry-row.absorbed { opacity: 0.55; }
+
+/* What follows the finger. Deliberately small and non-interactive so it never
+   swallows the pointer test that finds the drop target underneath it. */
+.drag-ghost {
+  position: fixed; z-index: 90; pointer-events: none;
+  transform: translate(-50%, -140%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: var(--radius-sm);
+  background: rgba(30, 41, 59, 0.97);
+  border: 1px solid rgba(167, 139, 250, 0.7);
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.8);
+  font-size: 0.82rem; max-width: 70vw;
+}
+.drag-ghost-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drag-ghost-amount { color: #ddd6fe; font-variant-numeric: tabular-nums; }
+
+.client-tag.shelf-tag { background: rgba(167, 139, 250, 0.18); color: #ddd6fe; }
+
+/* The mark two pieces of one purchase share. A diamond, never a pill, so it
+   cannot be mistaken for the client tags sitting beside it. */
+.lineage-tag {
+  font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.04em;
+  padding: 1px 7px; border-radius: 4px;
+  color: hsl(var(--lineage-hue) 80% 82%);
+  background: hsl(var(--lineage-hue) 70% 50% / 0.16);
+  border: 1px solid hsl(var(--lineage-hue) 70% 60% / 0.45);
+}
+.partial-tag {
+  font-size: 0.68rem; color: var(--amber);
+  background: rgba(245, 158, 11, 0.12); border-radius: 999px; padding: 1px 8px;
+}
+
+.split-equal { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+
+/* Backdrop lives above everything. No frosted-glass ancestor here, so a
+   position:fixed overlay genuinely covers the viewport rather than its panel. */
+.drop-dialog-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.drop-dialog {
+  width: min(460px, 100%);
+  background: var(--panel-solid); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.drop-dialog h4 { margin: 0; font-size: 1rem; font-weight: 650; }
+.drop-dialog .settle-opts { flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .group-head { padding: 12px; }
+  .group-total { font-size: 0.85rem; }
+  .drop-dialog { width: 100%; }
+}
+
 /* ===== Print: show only the invoice sheet ===== */
 @media print {
   body { background: #fff; }
@@ -1265,8 +1393,31 @@ textarea { resize: vertical; }
   .entry-row:not(.editing) .entry-figures {
     grid-area: figures; flex-direction: row; align-items: baseline; gap: 10px; justify-self: start;
   }
-  .entry-row:not(.editing) .entry-actions { grid-area: actions; justify-self: end; gap: 0; }
+  .entry-row:not(.editing) .entry-actions {
+    grid-area: actions; justify-self: end; gap: 0;
+    /* A last-resort safety net for the "Really delete?" confirm, which refuses
+       to shrink: without somewhere to wrap it overflows its cell and ends up
+       sitting underneath the button beside it, where it cannot be tapped. */
+    flex-wrap: wrap; justify-content: flex-end; row-gap: 4px;
+  }
+  /* An expense row carries up to six controls — assign, split and settle on top
+     of receipt, edit and delete — which is 252px of buttons trying to fit in a
+     192px column beside the amount. Shrinking them below a thumb is not an
+     option, and letting them wrap strands two on a line of their own, so the
+     amount takes a line and the controls take the full width under it. */
+  .entry-row:not(.editing):has(.expense-badge) {
+    grid-template-areas: "swatch main" "figures figures" "actions actions";
+  }
   .entry-row:not(.editing) .entry-photos { grid-column: 1 / -1; padding-left: 0; }
+  /* An expense row leads with its category badge where a time entry leads with
+     a colour swatch — same slot, different mark. Without this it auto-places
+     into a row of its own and shunts everything below it. */
+  .entry-row:not(.editing) .expense-badge { grid-area: swatch; align-self: center; }
+  /* A drawer is a full-width line UNDER the row. The flex layout gets that from
+     `flex: 1 0 100%`, which means nothing to a grid — so an un-placed drawer
+     lands in a named cell and renders as a ~100px column of stacked buttons,
+     with its Settle button pushed hundreds of pixels down the page. */
+  .entry-row:not(.editing) .row-drawer { grid-column: 1 / -1; }
 
   .nudge-row { gap: 8px; }
   .nudge-row .btn { width: 100%; }
@@ -1374,6 +1525,27 @@ textarea { resize: vertical; }
 }
 .help-item dd strong { color: var(--text); font-weight: 600; }
 .help-item dd em { color: var(--text); font-style: normal; opacity: 0.85; }
+
+/* Business notes: closed by default, because the TITLES are the reminder —
+   scanning them should be enough to remember an answer exists. */
+.help-note {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.3); padding: 0;
+}
+.help-note > summary {
+  cursor: pointer; list-style: none; padding: 11px 14px;
+  font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 8px;
+}
+.help-note > summary::-webkit-details-marker { display: none; }
+.help-note > summary::before { content: "▸"; color: var(--text-faint); font-size: 0.8rem; }
+.help-note[open] > summary::before { content: "▾"; }
+.help-note[open] > summary { color: var(--amber); }
+.help-note-body {
+  padding: 0 14px 13px 30px;
+  color: var(--text-dim); font-size: 0.9rem; line-height: 1.55;
+}
+.help-note-body strong { color: var(--text); font-weight: 600; }
+.help-note-body em { color: var(--text); font-style: normal; opacity: 0.85; }
 
 /* Glyphs shown the way they appear on a button, so the page points at
    something findable rather than describing it. */

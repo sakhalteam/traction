@@ -3,6 +3,7 @@ import type { DurationStyle, TractionState } from '../types'
 import {
   decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, liveSeconds,
   monthKey, periodLabel, todayISO, weekStartISO, clientShortName, entryAmount,
+  isAbsorbed,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
 import { DurationToggle } from './DurationFields'
@@ -190,6 +191,9 @@ export function ReportsView({
     const byCat = new Map<string, number>()
     for (const x of state.expenses) {
       if (x.date < from || x.date > to) continue
+      // A piece merged back into a sibling has had its amount moved onto that
+      // sibling — counting it here would spend the same money twice.
+      if (isAbsorbed(x)) continue
       if (x.billable) billable += x.amount; else overhead += x.amount
       byCat.set(x.category, (byCat.get(x.category) ?? 0) + x.amount)
     }

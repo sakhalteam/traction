@@ -3,7 +3,7 @@ import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, todayISO,
   agingOf, AGING_LABELS, nextInvoiceNumber, clientFullName, entryAmount, isFlat,
-  type AgingBucket,
+  isAbsorbed, type AgingBucket,
 } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 import { Picker } from './Picker'
@@ -95,7 +95,8 @@ function InvoiceBuilder({
     // A settled expense is closed — it was paid in cash, traded or written off,
     // and offering it here again is how it ends up billed twice.
     return state.expenses.filter(x =>
-      x.clientId === clientId && x.billable && !x.invoiceId && !x.settled && inRange(x.date))
+      x.clientId === clientId && x.billable && !x.invoiceId && !x.settled
+      && !isAbsorbed(x) && inRange(x.date))
   }, [state.expenses, clientId, start, end])
 
   const included = candidates.filter(e => !excluded.has(e.id))

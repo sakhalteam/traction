@@ -28,6 +28,14 @@ interface HelpSection {
   title: string
   blurb: string
   items: HelpItem[]
+  /**
+   * Render the items closed, opening one at a time.
+   *
+   * Only the business notes use this, and the titles are written to work as the
+   * reminder on their own — scanning them should be enough to remember that the
+   * answer exists, which is the entire job of that section.
+   */
+  collapsibleItems?: boolean
 }
 
 const SECTIONS: HelpSection[] = [
@@ -189,6 +197,42 @@ const SECTIONS: HelpSection[] = [
           client's cost, feeds profit in Reports.</>,
       },
       {
+        title: 'Two cards, shelf on top',
+        body: <><strong>On the shelf</strong> (purple) always sits above <strong>Ready to
+          bill</strong> (blue), whichever is open — material you own is the easiest thing
+          in the app to forget you have, so it never gets pushed off the bottom of a phone
+          again. The tile at the top and the card's own header open the same card.</>,
+      },
+      {
+        title: 'Drag it off the shelf to use it',
+        body: <>Drag a shelf item down onto <strong>Ready to bill</strong> and traction asks
+          whose job it went to. On a phone, <strong>hold it for a moment first</strong> —
+          moving straight away scrolls the page instead, the way it should. Assigning is not
+          invoicing: it still waits under that client until you build one.</>,
+      },
+      {
+        title: 'Drag it back if they did not use it',
+        body: <>Dropping something onto the shelf takes the client back off. If it had
+          already reached an invoice you get asked first: a <strong>draft</strong> is free to
+          change, a <strong>sent</strong> one warns you and offers to void the whole invoice
+          instead, and a <strong>paid</strong> one is refused — money that has landed is a
+          credit on the next invoice, never a rewrite of the last one.</>,
+      },
+      {
+        title: 'Cut it into pieces',
+        body: <><Key>½</Key> now works on the shelf too, not just on a client's expense.
+          Take a specific amount off, or cut it into <strong>2, 3, 4 or 5 equal pieces</strong> —
+          a bucket of roof treatment that does five roofs, 300yd of fabric across three
+          jobs. Every piece stays on the shelf until you drag one out.</>,
+      },
+      {
+        title: 'Put pieces back together',
+        body: <>Pieces cut from one purchase share a small <strong>◆ coloured mark</strong>.
+          Drag one onto another with the same mark and they merge back into one piece. Only
+          siblings can: 50yd of one brand and 50yd of another are not a 100yd roll, and
+          finding that out in somebody's yard is too late.</>,
+      },
+      {
         title: 'The tiles open',
         body: <>The two tiles at the top show exactly which expenses make up each number,
           with actions on every row. They are open by default whenever they hold anything —
@@ -217,7 +261,14 @@ const SECTIONS: HelpSection[] = [
       {
         title: 'Receipts',
         body: <>Attach a photo to any expense. Stored privately and available from the
-          invoice, which is when a client is most likely to ask for proof.</>,
+          invoice, which is when a client is most likely to ask for proof. A receipt
+          <strong> never prints on an invoice</strong> — it is your evidence, not theirs.</>,
+      },
+      {
+        title: 'One receipt, several pieces',
+        body: <>Cutting an expense up leaves every piece pointing at the <em>same</em> stored
+          photo, tagged <strong>part of a shared receipt</strong>. Deleting one piece leaves
+          the photo alone; it is only removed once the last piece using it is gone.</>,
       },
     ],
   },
@@ -369,6 +420,57 @@ const SECTIONS: HelpSection[] = [
       },
     ],
   },
+  {
+    id: 'notes', tab: null, title: 'Business notes',
+    blurb: 'Things worth remembering when the answer is not in the app. Tap one to open it.',
+    collapsibleItems: true,
+    items: [
+      {
+        title: 'Bought for this job, or kept on the truck?',
+        body: <>The question that decides how to charge for material. If you would only have
+          bought it <em>for this job</em> — 300yd of fabric for one yard — pass it through:
+          log it billable, put it on their invoice. If you keep it around and use a bit at a
+          time, it is <strong>stock</strong>, and stock belongs in the price of the service,
+          not on a line of somebody's bill.</>,
+      },
+      {
+        title: 'The big expensive bucket problem',
+        body: <>A $150 bucket of zinc treats about five roofs. Charging the first client the
+          whole $150 because "they asked first" is defensible, but it makes you the guy who
+          charged $150 for a shared bucket the day client #2 pays $30 for the same job.
+          <strong> You are not selling a bucket, you are selling a roof treatment.</strong> Price
+          the service — treatment, $X — with the ⅕ bucket, your labour and a margin already
+          inside X. Nobody sees a fraction of a bucket, nobody is overcharged, and if the
+          bucket goes off in the shed that is exactly what the margin was for.</>,
+      },
+      {
+        title: 'Never make a client wait for a group discount',
+        body: <>The trap on the other side of the bucket: "let me find four more clients who
+          want this first". If the service is priced properly you can say yes on the spot,
+          which is worth more than the material ever was.</>,
+      },
+      {
+        title: 'Material you own is not money you are owed',
+        body: <>The shelf exists so those two numbers never get added together. Half a roll in
+          the shed is an asset; half a roll used on the Stein job is an invoice waiting to
+          happen. Adding them up makes you feel richer than you are and is how a slow month
+          sneaks up.</>,
+      },
+      {
+        title: 'A sent invoice is a promise, not a draft',
+        body: <>Once a number is in a client's inbox, that is what they owe. Fixing it means
+          voiding and reissuing, not quietly editing — the app enforces this, and it is one
+          of the few places it deliberately makes things harder.</>,
+      },
+      {
+        title: 'Give it away on purpose',
+        body: <>When you do a freebie, <strong>settle</strong> it as gifted rather than
+          deleting it. It stops chasing you, keeps the hours in your logs, and means you can
+          answer "how much did I give away this year" — which is a real number, and usually
+          a bigger one than it feels like.</>,
+      },
+    ],
+  },
 ]
 
 export function HelpView() {
@@ -404,14 +506,27 @@ export function HelpView() {
               <p className="dim tiny">{s.blurb}</p>
             </div>
           </div>
-          <dl className="help-list">
-            {s.items.map(item => (
-              <div key={item.title} className="help-item">
-                <dt>{item.title}</dt>
-                <dd>{item.body}</dd>
-              </div>
-            ))}
-          </dl>
+          {s.collapsibleItems ? (
+            // <details> rather than state: the browser already does this, and a
+            // reminder you cannot open because JS hiccuped is worse than useless.
+            <div className="help-list">
+              {s.items.map(item => (
+                <details key={item.title} className="help-item help-note">
+                  <summary>{item.title}</summary>
+                  <div className="help-note-body">{item.body}</div>
+                </details>
+              ))}
+            </div>
+          ) : (
+            <dl className="help-list">
+              {s.items.map(item => (
+                <div key={item.title} className="help-item">
+                  <dt>{item.title}</dt>
+                  <dd>{item.body}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       ))}
     </div>

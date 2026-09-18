@@ -637,6 +637,174 @@ s = await readState()
 const spare = s.expenses.find(x => x.label === 'Spare timber')
 check('Assigning a shelf item gives it a client', !!spare?.clientId, String(spare?.clientId))
 
+
+// ---- 20b. The shelf: drag, cut up, and put back together ----------------
+
+/**
+ * Drag one element onto another using real pointer events.
+ *
+ * The app deliberately does not use HTML5 drag-and-drop (it never fires on
+ * touch), so this has to move a pointer the way a hand would: press, move past
+ * the slop threshold, travel, release.
+ */
+const dragOnto = async (from, to) => {
+  // Measured, scrolled and fired in ONE in-page pass.
+  //
+  // Driving this with page.mouse does not work here: under Playwright's mobile
+  // emulation its coordinates and document.elementFromPoint disagree, and its
+  // scroll-into-view mid-gesture fires a pointercancel that legitimately aborts
+  // the drag. Doing it in the page keeps the geometry self-consistent, and both
+  // ends are brought on screen together first — a drop point below the fold
+  // resolves to nothing at all.
+  const fh = await from.elementHandle()
+  const th = await to.elementHandle()
+  const outcome = await page.evaluate(([f, t]) => {
+    // The usable band is what neither the sticky header nor the fixed tab bar
+    // covers. A drop landing under the chrome hit-tests to the chrome, which
+    // belongs to no drop zone — the gesture then quietly does nothing.
+    const vh = window.innerHeight
+    const chrome = document.querySelector('.chrome')
+    const tabbar = document.querySelector('.tabbar')
+    const safeTop = chrome ? chrome.getBoundingClientRect().bottom : 0
+    const barVisible = tabbar && getComputedStyle(tabbar).display !== 'none'
+    const safeBottom = vh - (barVisible ? tabbar.getBoundingClientRect().height : 0)
+
+    const boxes = () => [f.getBoundingClientRect(), t.getBoundingClientRect()]
+    let [fr, tr] = boxes()
+    const top = Math.min(fr.top, tr.top), bottom = Math.max(fr.bottom, tr.bottom)
+    if (top < safeTop || bottom > safeBottom) {
+      const wanted = (top + bottom) / 2 - (safeTop + safeBottom) / 2
+      window.scrollTo({ top: window.scrollY + wanted, behavior: 'instant' })
+      ;[fr, tr] = boxes()
+    }
+    const clear = r => r.top >= safeTop && r.bottom <= safeBottom
+    if (!clear(fr) || !clear(tr)) return `both ends do not fit in the usable band (band ${Math.round(safeTop)}-${Math.round(safeBottom)}, from ${Math.round(fr.top)}-${Math.round(fr.bottom)}, to ${Math.round(tr.top)}-${Math.round(tr.bottom)})`
+
+    const fx = fr.x + fr.width / 2, fy = fr.y + 12
+    const tx = tr.x + tr.width / 2, ty = tr.y + tr.height / 2
+    const grabbed = document.elementFromPoint(fx, fy)
+    if (!grabbed) return 'nothing to grab'
+    if (grabbed.closest('button, input, select, textarea, a')) return 'grab point is a control'
+
+    const fire = (type, x, y, target) => target.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, composed: true,
+      clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse',
+      button: 0, buttons: type === 'pointerup' ? 0 : 1,
+    }))
+    fire('pointerdown', fx, fy, grabbed)
+    fire('pointermove', fx, fy + 30, window)
+    fire('pointermove', tx, ty, window)
+    fire('pointerup', tx, ty, window)
+    return 'ok'
+  }, [fh, th])
+  if (outcome !== 'ok') check(`drag could not be performed: ${outcome}`, false)
+  await page.waitForTimeout(450)
+}
+
+// The shelf is material you own; it must never be buried under money owed.
+// Checked at phone width, which is where being second actually hurt.
+const cardOrder = await page.evaluate(() =>
+  [...document.querySelectorAll('.group-card')].map(n => n.className.includes('group-shelf') ? 'shelf' : 'billable'))
+check('The shelf card renders above ready-to-bill', cardOrder[0] === 'shelf', cardOrder.join(' → '))
+
+/**
+ * The drags run at desktop width.
+ *
+ * Not to dodge the phone: an expense row is ~255px tall at 390px wide, so the
+ * two ends of a drag between the two cards genuinely cannot share a screen, and
+ * a synthetic gesture cannot auto-scroll the way a real thumb does. Click-drag
+ * is the desktop half of the feature and is what this exercises; the phone's
+ * hold-then-drag and every tap-only path (the ◎ / ½ / ✓ buttons) are covered
+ * above and below at phone width.
+ */
+await page.setViewportSize({ width: 1180, height: 900 })
+await page.waitForTimeout(400)
+
+// Drag the billed half of the lumber back onto the shelf. It is not invoiced,
+// so the client simply comes off — no dialog, one gesture to undo.
+await dragOnto(
+  page.locator('.group-billable li', { hasText: 'Lumber' }).first(),
+  page.locator('.group-shelf .group-head'),
+)
+s = await readState()
+const lumberRows = s.expenses.filter(x => x.label === 'Lumber')
+check('Dragging to the shelf takes the client back off',
+  lumberRows.every(x => x.clientId === null), JSON.stringify(lumberRows.map(x => x.clientId)))
+check('Both lumber pieces share one lineage',
+  !!lumberRows[0].lineageId && lumberRows[0].lineageId === lumberRows[1].lineageId,
+  lumberRows.map(x => x.lineageId).join(' / '))
+check('Split pieces share the same receipt reference',
+  lumberRows[0].receiptPath === lumberRows[1].receiptPath)
+check('Siblings wear a matching mark',
+  (await page.locator('.group-shelf .lineage-tag').count()) === 2,
+  `${await page.locator('.group-shelf .lineage-tag').count()} marks`)
+
+// Material that was never one thing must never become one thing.
+await dragOnto(
+  page.locator('.group-billable li', { hasText: 'Spare timber' }).first(),
+  page.locator('.group-shelf li', { hasText: 'Lumber' }).first(),
+)
+check('Unrelated material refuses to merge',
+  (await page.locator('.drop-dialog', { hasText: "Can't do that" }).count()) === 1)
+await page.locator('.drop-dialog button', { hasText: 'OK' }).click()
+await page.waitForTimeout(300)
+
+// Siblings do merge — but only after being asked.
+await dragOnto(
+  page.locator('.group-shelf li', { hasText: 'Lumber' }).nth(0),
+  page.locator('.group-shelf li', { hasText: 'Lumber' }).nth(1),
+)
+check('Merging siblings asks first, never silently',
+  (await page.locator('.drop-dialog', { hasText: 'Put these back together' }).count()) === 1)
+await page.locator('.drop-dialog button', { hasText: 'Merge them' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const wholeLumber = s.expenses.filter(x => x.label === 'Lumber' && !x.absorbedInto)
+const mergedAway = s.expenses.filter(x => x.label === 'Lumber' && x.absorbedInto)
+check('Recombining leaves one whole piece', wholeLumber.length === 1 && wholeLumber[0].amount === 77.04,
+  `${wholeLumber.length} live at ${wholeLumber[0]?.amount}`)
+// Deletion is the one thing the cloud merge cannot undo, so a merged piece is
+// marked rather than removed — otherwise a stale device resurrects the money.
+check('The absorbed piece is kept, not deleted', mergedAway.length === 1 && mergedAway[0].absorbedInto === wholeLumber[0].id)
+check('The absorbed piece carries no money', mergedAway[0].amount === 0 && mergedAway[0].absorbedAmount === 38.52)
+check('The stale "remainder unused" note is gone',
+  !/remainder unused/.test(wholeLumber[0].note), wholeLumber[0].note)
+
+// Cutting up material you have not attributed yet — the common case.
+await page.locator('.group-shelf li', { hasText: 'Lumber' })
+  .locator('.icon-btn[title="Cut this into pieces"]').click()
+await page.waitForTimeout(400)
+await page.locator('.split-equal .chip').nth(1).click()   // 3 equal pieces
+await page.waitForTimeout(500)
+s = await readState()
+const thirds = s.expenses.filter(x => x.label === 'Lumber' && !x.absorbedInto)
+check('A shelf item cuts into three', thirds.length === 3, `${thirds.length} pieces`)
+check('Thirds sum to exactly the original',
+  thirds.reduce((t, x) => t + Math.round(x.amount * 100), 0) === 7704,
+  thirds.map(x => x.amount).join(' + '))
+check('Every piece stays on the shelf', thirds.every(x => x.clientId === null))
+check('Re-splitting inherits the lineage rather than minting a new one',
+  new Set(thirds.map(x => x.lineageId)).size === 1)
+
+// Off the shelf and onto a client — assigning is not invoicing.
+await dragOnto(
+  page.locator('.group-shelf li', { hasText: 'Lumber' }).first(),
+  page.locator('.group-billable .group-head'),
+)
+check('Dragging off the shelf asks whose job it went to',
+  (await page.locator('.drop-dialog', { hasText: 'Whose job' }).count()) === 1)
+// Okonkwo specifically: the invoice-candidate checks below read that client,
+// and this block has to hand the fixture back the way it found it.
+await page.locator('.drop-dialog .chip', { hasText: 'Okonkwo' }).click()
+await page.waitForTimeout(500)
+s = await readState()
+const assigned = s.expenses.filter(x => x.label === 'Lumber' && x.clientId && !x.absorbedInto)
+check('It lands on a client but not on an invoice',
+  assigned.length === 1 && assigned[0].invoiceId === null)
+
+await page.setViewportSize({ width: 390, height: 844 })
+await page.waitForTimeout(400)
+
 // A settled expense must never be offered for billing again.
 await page.locator('.tab', { hasText: 'Invoices' }).click()
 await page.waitForTimeout(600)
@@ -818,7 +986,9 @@ check('No contents link points at a missing section', orphans.length === 0, orph
 // The features Nic most wanted to be able to look up.
 const helpText = (await page.locator('.help-view').innerText()).toLowerCase()
 for (const topic of ['flat price', 'given away', 'on the shelf', 'invoice code',
-                     'pill colour', 'really delete', 'share']) {
+                     'pill colour', 'really delete', 'share',
+                     'drag it off the shelf', 'put pieces back together',
+                     'business notes', 'roof treatment']) {
   check(`How-to explains "${topic}"`, helpText.includes(topic))
 }
 check('Help does not overflow a phone',
