@@ -26,6 +26,7 @@ keep going.** Everything below is the detail behind that loop.
 6. [Sync, backups & data safety](#6-sync-backups--data-safety)
 7. [FAQ & troubleshooting](#7-faq--troubleshooting)
 8. [Using it on your phone](#8-using-it-on-your-phone) ← **install it to your home screen**
+9. [Business notes](#9-business-notes)
 
 ---
 
@@ -169,23 +170,51 @@ another way, sit on the shelf, or be plain overhead:
 | | |
 |---|---|
 | **Ready to bill** | On a client, not yet invoiced. Real money to recover. |
-| **On the shelf** | Bought, billable, but no client yet — material you own. Assign it (◎) to whoever ends up using it. |
+| **On the shelf** | Bought, billable, but no client yet — material you own. Drag it onto *Ready to bill* (or tap ◎) to say whose job it went to. |
 | **Settled** | Closed without an invoice: **paid cash**, **traded**, **used it myself**, **written off**. Amount and receipt stay in history; it just stops waiting to be billed. |
 | **Overhead** | Never a client's cost. Feeds profit in Reports. |
 
+- **Two cards, shelf on top.** *On the shelf* (purple) always renders above *Ready to
+  bill* (blue), whichever is open — material you own used to be pushed off the bottom of
+  a phone by a long billable list, which made it the easiest thing in the app to forget.
+  Each card collapses; the tile at the top and the card's own header drive the same
+  state, so there is only ever one truth about what is open.
 - **The two tiles at the top are open by default** whenever they hold anything, and
   toggle independently. They show exactly which expenses make up each number, with the
   actions for each. Anything still waiting on a decision is always on screen — History
   below only holds what has already been dealt with.
+- **Drag material off the shelf to use it.** Drop a shelf item on *Ready to bill* and
+  traction asks whose job it went to. On a phone, **hold it a moment before moving** —
+  move straight away and you scroll the page, which is what a finger should do by
+  default. Assigning a client is **not** invoicing: it waits under that client until you
+  build one.
+- **Drag it back to the shelf** to take the client off again. If it had already reached
+  an invoice you get asked first, and the answer depends on where that invoice is:
+  a **draft** changes freely, a **sent** one warns you and offers to void the whole
+  invoice instead of quietly disagreeing with the client's copy, and a **paid** one is
+  refused outright — money that has landed becomes a credit on the next invoice, never a
+  rewrite of the last one.
 - **✓ Settle without invoicing** is the escape hatch for real life — they handed you cash
   at the door, you swapped it for concert tickets, you ended up using the gravel at your
   own house, or you have simply given up on it. Pick a reason, add a note if you want.
   **↺** reopens it if you were wrong.
-- **½ Charge only part of this** splits an expense. Say you bought $77.04 of lumber and
-  only used half on a deck: charge $38.52, and the invoice line reads
-  *"LUMBER — $38.52 of $77.04 total — remainder unused"* so a dispute answers itself.
-  The other $38.52 goes to **the shelf** with no client attached — it is wood you own, not
-  money that client still owes.
+- **½ Cut it into pieces** — and this now works on the shelf too, not only on an expense
+  that already has a client, because material gets cut up long before you know whose job
+  it is. Take a specific amount off, or cut it into **2, 3, 4 or 5 equal pieces** for the
+  bucket that does five roofs or the 300yd roll that covers three jobs. On a client's
+  expense it still means "charge them part of this": the invoice line reads
+  *"LUMBER — $38.52 of $77.04 total — remainder unused"* so a dispute answers itself, and
+  the remainder goes to the shelf with no client attached.
+- **Put pieces back together.** Every piece cut from one purchase carries a small
+  **◆ coloured mark**. Drag one piece onto another with the same mark and they merge back
+  into one. **Only siblings can** — 50yd of one brand and 50yd of another are not a 100yd
+  roll, and finding that out in somebody's yard is too late. Nothing ever merges on its
+  own, and a merged piece is kept in History rather than deleted, so you can always see
+  what happened.
+- **Receipts are shared by every piece.** Cutting an expense up leaves all the pieces
+  pointing at the same photo, tagged *part of a shared receipt*. Deleting one piece
+  leaves the photo alone — it is only removed once the last piece using it is gone. A
+  receipt never prints on an invoice: it is your evidence, not the client's.
 - **History** below is everything already dealt with. What still needs a decision from
   you lives up top, because a task buried in a chronological log is a task you forget.
 - **Edit / delete** any expense — unless it's already on an invoice (then it's locked,
@@ -552,6 +581,55 @@ with no bars is fine:
 > come back. That's the deliberate trade: a row you have to delete twice is a nuisance,
 > whereas quietly losing three hours of tracked work is money gone. Delete it again and
 > it stays gone.
+
+## 9. Business notes
+
+Things worth remembering when the answer isn't in the app. These live in the app too, at
+the bottom of **How-to**, collapsed — the titles are the reminder.
+
+### Bought for this job, or kept on the truck?
+
+The question that decides how to charge for material. If you'd only have bought it *for
+this job* — 300yd of fabric for one yard — **pass it through**: log it billable and put it
+on their invoice. If you keep it around and use a bit at a time, it's **stock**, and stock
+belongs in the price of the service, not on a line of somebody's bill.
+
+### The big expensive bucket problem
+
+A $150 bucket of zinc treats about five roofs. Charging the first client the whole $150
+because "they asked first" is defensible, but it makes you the guy who charged $150 for a
+shared bucket the day client #2 pays $30 for the same job.
+
+**You're not selling a bucket, you're selling a roof treatment.** Price the service —
+treatment, $X — with the 1/5 bucket, your labour and a margin already inside X. Nobody sees
+a fraction of a bucket, nobody is overcharged, and if the bucket goes off in the shed
+that's exactly what the margin was for.
+
+### Never make a client wait for a group discount
+
+The trap on the other side of the bucket: *"let me find four more clients who want this
+first."* If the service is priced properly you can say yes on the spot, which is worth more
+than the material ever was.
+
+### Material you own is not money you're owed
+
+The shelf exists so those two numbers never get added together. Half a roll in the shed is
+an asset; half a roll used on the Stein job is an invoice waiting to happen. Adding them up
+makes you feel richer than you are, and that's how a slow month sneaks up.
+
+### A sent invoice is a promise, not a draft
+
+Once a number is in a client's inbox, that's what they owe. Fixing it means voiding and
+reissuing, not quietly editing — traction enforces this, and it's one of the few places it
+deliberately makes things harder.
+
+### Give it away on purpose
+
+When you do a freebie, **settle** it as gifted rather than deleting it. It stops chasing
+you, keeps the hours in your logs, and means you can answer *"how much did I give away this
+year"* — which is a real number, and usually bigger than it feels.
+
+---
 
 ---
 

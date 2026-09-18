@@ -186,6 +186,40 @@ export interface Expense {
    * would re-upload every receipt on every keystroke.
    */
   receiptPath: string | null
+  /**
+   * Groups every piece cut from one original purchase.
+   *
+   * Minted on the FIRST split and inherited by every descendant, never
+   * regenerated — so splitting 300yd into 100 + 200 and then cutting that 200
+   * into 100 + 100 leaves three pieces that all still know they came off the
+   * same roll, and any subset of them can be put back together.
+   *
+   * Only siblings may recombine, and that restriction is the whole point. Two
+   * 50yd halves of *different brands* of weed fabric are not interchangeable:
+   * turning up to a job with them as one "100yd roll" is a problem on site. A
+   * shared lineage is the app's evidence that two pieces were once one thing.
+   *
+   * Absent on every expense that has never been split.
+   */
+  lineageId?: string
+  /**
+   * Set when this piece has been merged back into a sibling: the id of the
+   * survivor that absorbed it.
+   *
+   * Recombining deliberately does NOT delete the absorbed row. `mergeStates`
+   * keeps no tombstones (see store.ts), so a record deleted here while the
+   * cloud still holds it comes back on the next merge. For a time entry that
+   * resurrection is harmless and visible; on the shelf it would be material
+   * that does not exist and money that was never spent. An absorbed piece is
+   * an UPDATE both devices agree on, so it can never un-merge itself.
+   */
+  absorbedInto?: string | null
+  /**
+   * What this piece was worth before it was absorbed. Its `amount` is zeroed on
+   * merge so that any code path which forgets to filter absorbed rows still
+   * cannot double-count the money — the survivor now carries all of it.
+   */
+  absorbedAmount?: number
   createdAt: number
 }
 

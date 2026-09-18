@@ -5,7 +5,8 @@ import {
   emptyState, isEmptyState, loadLocal, saveLocal, touchLocal, saveRemote, loadRemote,
   getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
-  addDays, nextInvoiceNumber, dateFromEpoch, splitExpense,
+  addDays, nextInvoiceNumber, dateFromEpoch, splitExpense, splitExpenseEqually,
+  recombineExpenses, receiptRefCount,
 } from './store'
 import type { RemoteState } from './store'
 import type {
@@ -403,14 +404,91 @@ export default function App() {
     })
   }, [mutate])
 
+  /** Cut an expense into N equal pieces, all but the first landing on the shelf. */
+  const splitExpenseEquallyAction = useCallback((id: string, parts: number) => {
+    mutate(s => {
+      const existing = s.expenses.find(x => x.id === id)
+      if (!existing || existing.invoiceId) return s
+      const pieces = splitExpenseEqually(existing, parts, s.settings.currency)
+      if (pieces.length < 2) return s
+      return { ...s, expenses: s.expenses.flatMap(x => x.id === id ? pieces : [x]) }
+    })
+  }, [mutate])
+
+  /**
+   * Put sibling pieces back together, the survivor absorbing the rest.
+   *
+   * Nothing recombines on its own — this only ever runs because one piece was
+   * dragged onto another. A merge is a claim about the physical world ("these
+   * are one roll again") that only the person holding the material can make.
+   */
+  const recombineExpensesAction = useCallback((survivorId: string, absorbedIds: string[]) => {
+    mutate(s => {
+      const survivor = s.expenses.find(x => x.id === survivorId)
+      const absorbed = absorbedIds
+        .map(id => s.expenses.find(x => x.id === id))
+        .filter((x): x is Expense => !!x)
+      if (!survivor || absorbed.length !== absorbedIds.length) return s
+      const merged = recombineExpenses(survivor, absorbed, s.settings.currency)
+      if (!merged) return s
+      const byId = new Map(merged.map(x => [x.id, x]))
+      return { ...s, expenses: s.expenses.map(x => byId.get(x.id) ?? x) }
+    })
+  }, [mutate])
+
+  /**
+   * Take an expense back off the invoice it was frozen onto.
+   *
+   * Tiered by status, because the only question that matters is what the client
+   * has already been told they owe:
+   *
+   *  draft  — nobody has seen it. Detach freely and rewrite the snapshot.
+   *  sent   — they have a number in their inbox. The caller has to have
+   *           confirmed; the invoice keeps its number and gets a note saying
+   *           what left it, so the record never silently disagrees with the paper.
+   *  paid   — refused outright. You do not un-bill money that has landed; if
+   *           you owe it back that is a credit on the next invoice, not a
+   *           rewrite of a document that has already been honoured.
+   */
+  const detachFromInvoice = useCallback((expenseId: string) => {
+    mutate(s => {
+      const exp = s.expenses.find(x => x.id === expenseId)
+      if (!exp?.invoiceId) return s
+      const inv = s.invoices.find(i => i.id === exp.invoiceId)
+      if (!inv || inv.status === 'paid') return s
+      const line = inv.expensesSnapshot.find(l => l.id === expenseId)
+      const note = inv.status === 'sent'
+        ? [inv.notes, `Removed after sending: ${line?.label || exp.label || 'an expense'}`]
+            .filter(Boolean).join('\n')
+        : inv.notes
+      return {
+        ...s,
+        expenses: s.expenses.map(x => x.id === expenseId ? { ...x, invoiceId: null } : x),
+        invoices: s.invoices.map(i => i.id !== inv.id ? i : {
+          ...i,
+          notes: note,
+          expenseIds: i.expenseIds.filter(id => id !== expenseId),
+          expensesSnapshot: i.expensesSnapshot.filter(l => l.id !== expenseId),
+        }),
+      }
+    })
+  }, [mutate])
+
   const deleteExpense = useCallback((id: string) => {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
       if (!existing || existing.invoiceId) return s
       // Don't strand the receipt photo in Storage. Best-effort and deliberately
       // un-awaited: a failed cleanup must never block deleting the expense.
-      if (existing.receiptPath) void deleteReceipt(supabase, existing.receiptPath)
-      return { ...s, expenses: s.expenses.filter(x => x.id !== id) }
+      //
+      // Split pieces SHARE one stored photo, so only the last piece still
+      // pointing at it may delete it — otherwise deleting an offcut blanks the
+      // receipt on the half that is about to be invoiced.
+      const others = s.expenses.filter(x => x.id !== id)
+      if (existing.receiptPath && receiptRefCount(existing.receiptPath, others) === 0) {
+        void deleteReceipt(supabase, existing.receiptPath)
+      }
+      return { ...s, expenses: others }
     })
   }, [mutate])
 
@@ -675,6 +753,10 @@ export default function App() {
             onSettle={settleExpense}
             onAssign={assignExpense}
             onSplit={splitExpenseAction}
+            onSplitEqually={splitExpenseEquallyAction}
+            onRecombine={recombineExpensesAction}
+            onDetachFromInvoice={detachFromInvoice}
+            onDeleteInvoice={deleteInvoice}
             onGoInvoice={goInvoice}
           />
         )}
