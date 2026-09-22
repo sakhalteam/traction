@@ -1037,6 +1037,23 @@ textarea { resize: vertical; }
 
 .split-equal { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 
+/* ===== Measured material ("track by quantity") ===== */
+.measure-tag {
+  font-size: 0.7rem; padding: 1px 8px; border-radius: 999px;
+  color: var(--sky); background: rgba(56, 189, 248, 0.12);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.measure-fields {
+  margin: 10px 0; padding: 10px 12px; border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+}
+.measure-fields .field-row { margin-top: 8px; }
+.check-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
+.check-field input { width: auto; margin: 0; }
+.qty-field { max-width: 220px; margin: 6px 0; }
+.expense-row.measured { flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 0; }
+.measured-line { font-variant-numeric: tabular-nums; }
+
 /* Backdrop lives above everything. No frosted-glass ancestor here, so a
    position:fixed overlay genuinely covers the viewport rather than its panel. */
 .drop-dialog-backdrop {

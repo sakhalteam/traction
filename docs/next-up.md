@@ -194,6 +194,17 @@ codebase (see the comment on `Expense.settled` in `types.ts`): overhead means *a
 was never a client's*, and rewriting history to say that changes what Reports claims about
 the business. Stock is its own thing: a cost that's real, yours, and not yet consumed.
 
+### Update — depletable stock shipped as "Track by quantity"
+
+Nic answered the question below: yes, for chemicals billed per use. Any billable shelf
+item can now carry `Expense.measure` (unit, holds, qty, client-facing name, per-unit
+price). Drawing units off (`drawMeasured` in `store.ts`) cuts a new piece that shares the
+container's lineage, so the existing recombine machinery pours unused units back. The
+invoice freezes name × qty @ price via `expenseLine`; `amount` stays cost, and Reports
+counts price − cost as income. That also covers Pin 3's markup **for measured items
+only** — ordinary pass-through material is still billed at cost. The "stop nagging me"
+half of this pin (containers still sit on the shelf) is still open.
+
 ### Open question for Nic
 
 Should stock be **depletable** — i.e. does he want to record "used ⅕ of the bucket on the

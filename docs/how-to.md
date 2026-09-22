@@ -211,6 +211,19 @@ another way, sit on the shelf, or be plain overhead:
   roll, and finding that out in somebody's yard is too late. Nothing ever merges on its
   own, and a merged piece is kept in History rather than deleted, so you can always see
   what happened.
+- **Track by quantity.** For material you use a bit at a time — a quart of Crossbow, a
+  bucket of zinc — tick **Track by quantity** when you log it (or later, with ✎ on
+  anything on the shelf). Give the unit (*fl oz*), what it holds (*32*), the **name on
+  invoice** (*Herbicide treatment*) and a **price per unit**, which starts at cost + 20%
+  for you to change. The amount is what you **paid** — never the marked-up figure, or
+  Reports shows you spending money you didn't.
+- **Draw some off for a job.** ◎, or dragging the container onto *Ready to bill*, asks
+  how many went on the job and whose job it was. That many comes out of the container
+  (*30 of 32 fl oz left*) and the invoice reads *HERBICIDE TREATMENT × 2 @ $10.00 —
+  $20.00*: no brand, no cost. The price is frozen onto the piece when you draw it, the
+  way an hourly rate is, so repricing the jug later never changes a job already done.
+  What you charge over cost counts as income in Reports. Didn't use it after all? Drag it
+  back to the shelf and onto its container to pour it back in.
 - **Receipts are shared by every piece.** Cutting an expense up leaves all the pieces
   pointing at the same photo, tagged *part of a shared receipt*. Deleting one piece
   leaves the photo alone — it is only removed once the last piece using it is gone. A

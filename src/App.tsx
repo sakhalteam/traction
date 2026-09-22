@@ -6,7 +6,7 @@ import {
   getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
   addDays, nextInvoiceNumber, dateFromEpoch, splitExpense, splitExpenseEqually,
-  recombineExpenses, receiptRefCount,
+  recombineExpenses, receiptRefCount, drawMeasured, expenseLine,
 } from './store'
 import type { RemoteState } from './store'
 import type {
@@ -390,11 +390,26 @@ export default function App() {
     }))
   }, [mutate])
 
+  /**
+   * Draw some units of a measured container off the shelf for a client — see
+   * drawMeasured. The container keeps whatever is left.
+   */
+  const drawMeasuredAction = useCallback((id: string, clientId: string, qty: number) => {
+    mutate(s => {
+      const existing = s.expenses.find(x => x.id === id)
+      if (!existing) return s
+      const rows = drawMeasured(existing, qty, clientId)
+      if (!rows) return s
+      return { ...s, expenses: s.expenses.flatMap(x => x.id === id ? rows : [x]) }
+    })
+  }, [mutate])
+
   /** Charge part of an expense and shelve the rest — see splitExpense. */
   const splitExpenseAction = useCallback((id: string, billedAmount: number) => {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
-      if (!existing || existing.invoiceId) return s
+      // Measured material is cut by the unit, never by money.
+      if (!existing || existing.invoiceId || existing.measure) return s
       const [billed, remainder] = splitExpense(existing, billedAmount, s.settings.currency)
       if (remainder.amount <= 0) return s
       return {
@@ -408,7 +423,7 @@ export default function App() {
   const splitExpenseEquallyAction = useCallback((id: string, parts: number) => {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
-      if (!existing || existing.invoiceId) return s
+      if (!existing || existing.invoiceId || existing.measure) return s
       const pieces = splitExpenseEqually(existing, parts, s.settings.currency)
       if (pieces.length < 2) return s
       return { ...s, expenses: s.expenses.flatMap(x => x.id === id ? pieces : [x]) }
@@ -563,7 +578,9 @@ export default function App() {
     const snapshot = buildBreakdown(s.entries.filter(e => entryIds.includes(e.id)), s.services)
     const expensesSnapshot = s.expenses
       .filter(x => expenseIds.includes(x.id))
-      .map(x => ({ id: x.id, label: x.label || 'Charge', amount: x.amount || 0, note: x.note }))
+      // Measured material freezes its client-facing name, units and per-unit
+      // price; everything else its label and amount, as before.
+      .map(expenseLine)
     // Work settled outside traction (cash on the day, an old paper invoice) is
     // dated to when it happened, not today — issuing a 2025 job "today" would
     // land it in the wrong month in Reports.
@@ -610,8 +627,12 @@ export default function App() {
       }
     })
   }, [mutate])
+  // Measured material is refused by both of the next two. Editing its amount
+  // here would overwrite what you PAID with what the client is charged, and
+  // removing it would delete units that belong back in the container — taking
+  // it off goes through the Expenses tab, which pours it back.
   const updateInvoiceCharge = useCallback((invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => {
-    mutate(s => ({
+    mutate(s => s.expenses.find(x => x.id === expenseId)?.measure ? s : ({
       ...s,
       expenses: s.expenses.map(x => x.id === expenseId ? { ...x, ...patch } : x),
       invoices: s.invoices.map(i => i.id === invoiceId
@@ -622,7 +643,7 @@ export default function App() {
     }))
   }, [mutate])
   const removeInvoiceCharge = useCallback((invoiceId: string, expenseId: string) => {
-    mutate(s => ({
+    mutate(s => s.expenses.find(x => x.id === expenseId)?.measure ? s : ({
       ...s,
       expenses: s.expenses.filter(x => x.id !== expenseId),
       invoices: s.invoices.map(i => i.id === invoiceId
@@ -754,6 +775,7 @@ export default function App() {
             onAssign={assignExpense}
             onSplit={splitExpenseAction}
             onSplitEqually={splitExpenseEquallyAction}
+            onDrawMeasured={drawMeasuredAction}
             onRecombine={recombineExpensesAction}
             onDetachFromInvoice={detachFromInvoice}
             onDeleteInvoice={deleteInvoice}

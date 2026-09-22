@@ -220,7 +220,46 @@ export interface Expense {
    * cannot double-count the money — the survivor now carries all of it.
    */
   absorbedAmount?: number
+  /**
+   * Material used a measured amount at a time — a quart of herbicide that goes
+   * out 2 fl oz per hillside, a bucket of zinc that does five roofs.
+   *
+   * Set on the container on the shelf and carried by every piece drawn off it.
+   * `amount` stays what you PAID for the units this row holds, so Reports keeps
+   * the true cost; `measure.unitPrice` is what a client is charged per unit,
+   * and the gap between the two is your margin. Absent on everything else.
+   */
+  measure?: Measure | null
   createdAt: number
+}
+
+/**
+ * How a measured material is counted, priced and named.
+ *
+ * Two names on purpose: the label on the expense is what YOU call it
+ * ("Crossbow, 1qt"), `clientLabel` is what the invoice says ("Herbicide
+ * treatment"). A client pays for a treatment, not for a brand of jug.
+ */
+export interface Measure {
+  /** What one unit is: "fl oz", "roof", "scoop". */
+  unit: string
+  /** Units the full container held when bought. Display only — "30 of 32 left". */
+  holds: number
+  /**
+   * Units in THIS row. On the shelf that is what's left in the container; on a
+   * piece drawn off it, what went to that client. Whole numbers only.
+   */
+  qty: number
+  /** The name the client sees on their invoice. Blank falls back to the label. */
+  clientLabel: string
+  /**
+   * What a client is charged per unit. Copied onto each piece when it is drawn
+   * off, like an hourly rate onto a time entry, so repricing the container
+   * never quietly changes a job already done.
+   */
+  unitPrice: number
+  /** The amount usually used on one job — where the assign box starts. */
+  usual: number
 }
 
 /**
@@ -238,6 +277,10 @@ export interface ExpenseLine {
   /** Why this line is what it is — "half of $77.04, remainder unused". Printed
    *  under the label, so a partial charge explains itself years later. */
   note?: string
+  /** Measured material only: how many units, printed where hours would go. */
+  qty?: number
+  /** Measured material only: the frozen per-unit price, printed as the rate. */
+  unitPrice?: number
 }
 
 export interface Invoice {

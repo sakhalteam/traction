@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
-import type { Expense, SettledHow, TractionState } from '../types'
+import type { Expense, Measure, SettledHow, TractionState } from '../types'
 import {
   EXPENSE_CATEGORIES, clientColor, clientFullName, clientShortName,
   formatDate, formatMoney, makeExpense, todayISO,
   expenseState, isOpenExpense, isAbsorbed, lineageMark, siblingsOf, receiptRefCount,
-  SETTLED_LABELS, SETTLED_OPTIONS,
+  SETTLED_LABELS, SETTLED_OPTIONS, DEFAULT_MARKUP_PCT, billedAmount, costPerUnit, suggestUnitPrice,
 } from '../store'
 import { ClientLabel } from '../Chrome'
 import { supabase } from '../supabaseClient'
@@ -32,7 +32,7 @@ type PendingDrop =
 
 export function ExpensesView({
   state, onAdd, onUpdate, onDelete, onSettle, onAssign, onSplit,
-  onSplitEqually, onRecombine, onDetachFromInvoice, onDeleteInvoice, onGoInvoice,
+  onSplitEqually, onDrawMeasured, onRecombine, onDetachFromInvoice, onDeleteInvoice, onGoInvoice,
 }: {
   state: TractionState
   onAdd: (x: Expense) => void
@@ -42,6 +42,7 @@ export function ExpensesView({
   onAssign: (id: string, clientId: string | null) => void
   onSplit: (id: string, billedAmount: number) => void
   onSplitEqually: (id: string, parts: number) => void
+  onDrawMeasured: (id: string, clientId: string, qty: number) => void
   onRecombine: (survivorId: string, absorbedIds: string[]) => void
   onDetachFromInvoice: (id: string) => void
   onDeleteInvoice: (id: string) => void
@@ -161,6 +162,9 @@ export function ExpensesView({
   }, [state.expenses, filter])
 
   const sum = (list: Expense[]) => list.reduce((s, x) => s + x.amount, 0)
+  /** Money owed is what clients will be charged — for measured material that
+   *  is units x price, not what the jug cost you. */
+  const billedSum = (list: Expense[]) => list.reduce((s, x) => s + billedAmount(x), 0)
   const overhead = sum(state.expenses.filter(x => !x.billable && !isAbsorbed(x)))
   const openCount = byState.billable.length + byState.shelf.length
   /**
@@ -178,7 +182,7 @@ export function ExpensesView({
   ]
 
   const rowProps = {
-    state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually, onGoInvoice,
+    state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually, onDrawMeasured, onGoInvoice,
     dragHandle, draggingId: drag.id,
     mergeTargetId: drag.target?.kind === 'merge' ? drag.target.id : null,
   }
@@ -195,7 +199,7 @@ export function ExpensesView({
         </p>
         <div className="ar-summary three">
           <ExpenseTile
-            label="Ready to bill" amount={sum(byState.billable)} cur={cur}
+            label="Ready to bill" amount={billedSum(byState.billable)} cur={cur}
             sub={`${byState.billable.length} on a client, not yet invoiced`}
             open={open.has('billable')} onClick={() => toggleGroup('billable')}
             accent
@@ -248,6 +252,7 @@ export function ExpensesView({
           state={state}
           onClose={() => setPending(null)}
           onAssign={onAssign}
+          onDrawMeasured={onDrawMeasured}
           onRecombine={onRecombine}
           onDetach={onDetachFromInvoice}
           onDeleteInvoice={onDeleteInvoice}
@@ -325,7 +330,9 @@ function ExpenseGroupCard({
   dragging: boolean
   children: ReactNode
 }) {
-  const total = group.list.reduce((s, x) => s + x.amount, 0)
+  // Same numbers as the tiles above: money owed is what clients will be
+  // charged, material on the shelf is what you paid.
+  const total = group.list.reduce((s, x) => s + (group.id === 'billable' ? billedAmount(x) : x.amount), 0)
   return (
     <section
       className={`group-card group-${group.id} ${open ? 'open' : 'closed'} ${dropActive ? 'drop-active' : ''} ${dragging ? 'drop-armed' : ''}`}
@@ -358,16 +365,22 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
   const [clientId, setClientId] = useState('')
   const [billable, setBillable] = useState(true)
   const [note, setNote] = useState('')
+  const [measure, setMeasure] = useState<Measure | null>(null)
+  // Measured material starts on the shelf and is drawn off it by the unit, so
+  // it only makes sense billable and with no client yet.
+  const measured = billable && !clientId && measure
+  const measureBad = !!measured && !measureValid(measured)
 
   function submit() {
     const amt = Number(amount) || 0
-    if (!label.trim() || amt <= 0) return
+    if (!label.trim() || amt <= 0 || measureBad) return
     onAdd({
       ...makeExpense(date),
       label: label.trim(), amount: amt, category,
       clientId: clientId || null, billable, note: note.trim(),
+      measure: measured ? cleanMeasure(measured) : null,
     })
-    setLabel(''); setAmount(''); setNote('')
+    setLabel(''); setAmount(''); setNote(''); setMeasure(null)
   }
 
   return (
@@ -409,9 +422,14 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="optional" /></label>
       </div>
       {billable && !clientId && (
-        <p className="hint tiny">Heads up: a billable expense needs a client to be added to an invoice.</p>
+        <>
+          <MeasureFields amount={Number(amount) || 0} cur={state.settings.currency} value={measure} onChange={setMeasure} />
+          {!measure && (
+            <p className="hint tiny">Heads up: a billable expense needs a client to be added to an invoice.</p>
+          )}
+        </>
       )}
-      <button className="btn primary" disabled={!label.trim() || (Number(amount) || 0) <= 0} onClick={submit}>
+      <button className="btn primary" disabled={!label.trim() || (Number(amount) || 0) <= 0 || measureBad} onClick={submit}>
         Log expense
       </button>
     </div>
@@ -419,7 +437,7 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
 }
 
 function ExpenseRow({
-  expense, state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually,
+  expense, state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually, onDrawMeasured,
   onGoInvoice, dragHandle, draggingId, mergeTargetId,
 }: {
   expense: Expense
@@ -430,6 +448,7 @@ function ExpenseRow({
   onAssign: (id: string, clientId: string | null) => void
   onSplit: (id: string, billedAmount: number) => void
   onSplitEqually: (id: string, parts: number) => void
+  onDrawMeasured: (id: string, clientId: string, qty: number) => void
   onGoInvoice: (clientId?: string) => void
   dragHandle: (id: string) => { onPointerDown: (e: ReactPointerEvent) => void }
   draggingId: string | null
@@ -475,6 +494,7 @@ function ExpenseRow({
   // here rather than burned into the photo: the image is evidence, one photo
   // often covers several expenses, and stamped pixels cannot be taken back.
   const partialReceipt = !!expense.receiptPath && siblings.some(s => s.receiptPath === expense.receiptPath)
+  const m = expense.measure ?? null
 
   return (
     <li
@@ -526,10 +546,22 @@ function ExpenseRow({
               {SETTLED_LABELS[expense.settled.how]}
             </span>
           )}
+          {m && (st === 'shelf'
+            ? <span className="measure-tag" title={`${formatMoney(costPerUnit(expense), cur)} cost per ${m.unit || 'unit'}; clients pay ${formatMoney(m.unitPrice, cur)}`}>
+                {m.qty} of {m.holds} {m.unit} left
+              </span>
+            : <span className="measure-tag" title={`${m.qty} ${m.unit} of ${expense.label || 'this'}`}>
+                {m.clientLabel || expense.label} × {m.qty}
+              </span>)}
         </div>
       </div>
       <div className="entry-figures">
-        <span className="entry-dur">{formatMoney(expense.amount, cur)}</span>
+        {/* On a client, a measured piece shows what they'll be charged — that is
+            the number the "ready to bill" tile adds up. On the shelf it is still
+            what you paid: nobody owes it yet. */}
+        {m && expense.clientId
+          ? <span className="entry-dur" title={`Cost you ${formatMoney(expense.amount, cur)}`}>{formatMoney(billedAmount(expense), cur)}</span>
+          : <span className="entry-dur">{formatMoney(expense.amount, cur)}</span>}
       </div>
       <div className="entry-actions">
         {/* Receipts stay available even once invoiced — that is exactly when a
@@ -542,10 +574,13 @@ function ExpenseRow({
             )}
             {/* Splitting is no longer reserved for expenses that already have a
                 client. Material gets cut up BEFORE you know whose job it is far
-                more often than after. */}
-            <button className="icon-btn"
-              title={st === 'shelf' ? 'Cut this into pieces' : 'Charge only part of this'}
-              onClick={() => toggle('split')}>½</button>
+                more often than after. Measured material is drawn off by the
+                unit instead, through assign. */}
+            {!m && (
+              <button className="icon-btn"
+                title={st === 'shelf' ? 'Cut this into pieces' : 'Charge only part of this'}
+                onClick={() => toggle('split')}>½</button>
+            )}
             {/* The escape hatch: closed out without ever being invoiced. */}
             <button className="icon-btn" title="Settle without invoicing" onClick={() => toggle('settle')}>✓</button>
           </>
@@ -577,7 +612,11 @@ function ExpenseRow({
       {drawer === 'assign' && (
         <AssignDrawer
           state={state}
-          onPick={id => { onAssign(expense.id, id); setDrawer(null) }}
+          measure={m}
+          onPick={(id, qty) => {
+            if (m) onDrawMeasured(expense.id, id, qty); else onAssign(expense.id, id)
+            setDrawer(null)
+          }}
           onCancel={() => setDrawer(null)}
         />
       )}
@@ -643,19 +682,24 @@ function SettleDrawer({
 
 /** Attach a shelf expense to whoever ended up using it. */
 function AssignDrawer({
-  state, onPick, onCancel,
+  state, measure, onPick, onCancel,
 }: {
   state: TractionState
-  onPick: (clientId: string) => void
+  /** Set for measured material: how much went on the job is asked first. */
+  measure: Measure | null
+  onPick: (clientId: string, qty: number) => void
   onCancel: () => void
 }) {
   const clients = state.clients.filter(c => !c.archived)
+  const [qty, setQty] = useState(() => measure ? Math.min(measure.usual, measure.qty) : 0)
+  const bad = !!measure && !(qty >= 1 && qty <= measure.qty)
   return (
     <div className="row-drawer">
       <span className="drawer-label">Whose job did this go to?</span>
+      {measure && <QtyField measure={measure} value={qty} onChange={setQty} />}
       <div className="settle-opts">
         {clients.map(c => (
-          <button key={c.id} type="button" className="chip" onClick={() => onPick(c.id)}>
+          <button key={c.id} type="button" className="chip" disabled={bad} onClick={() => onPick(c.id, qty)}>
             {clientShortName(c)}
           </button>
         ))}
@@ -743,12 +787,13 @@ function SplitDrawer({
  * yard is not consent to re-bill somebody.
  */
 function DropDialog({
-  pending, state, onClose, onAssign, onRecombine, onDetach, onDeleteInvoice,
+  pending, state, onClose, onAssign, onDrawMeasured, onRecombine, onDetach, onDeleteInvoice,
 }: {
   pending: PendingDrop
   state: TractionState
   onClose: () => void
   onAssign: (id: string, clientId: string | null) => void
+  onDrawMeasured: (id: string, clientId: string, qty: number) => void
   onRecombine: (survivorId: string, absorbedIds: string[]) => void
   onDetach: (id: string) => void
   onDeleteInvoice: (id: string) => void
@@ -756,6 +801,8 @@ function DropDialog({
   const cur = state.settings.currency
   const clients = state.clients.filter(c => !c.archived)
   const find = (id: string) => state.expenses.find(x => x.id === id) ?? null
+  const assignMeasure = pending.kind === 'assign' ? find(pending.id)?.measure ?? null : null
+  const [qty, setQty] = useState(() => assignMeasure ? Math.min(assignMeasure.usual, assignMeasure.qty) : 0)
 
   let body: ReactNode = null
   let title = ''
@@ -766,13 +813,21 @@ function DropDialog({
     body = (
       <>
         <p className="hint tiny">
-          {exp?.label || 'This'} comes off the shelf and waits to be billed. It is not on
-          an invoice yet — that is still a separate step.
+          {assignMeasure
+            ? <>How much went on the job? That much comes out of {exp?.label || 'the container'} and
+                waits to be billed; the rest stays on the shelf.</>
+            : <>{exp?.label || 'This'} comes off the shelf and waits to be billed. It is not on
+                an invoice yet — that is still a separate step.</>}
         </p>
+        {assignMeasure && <QtyField measure={assignMeasure} value={qty} onChange={setQty} />}
         <div className="settle-opts">
           {clients.map(c => (
             <button key={c.id} type="button" className="chip"
-              onClick={() => { onAssign(pending.id, c.id); onClose() }}>
+              disabled={!!assignMeasure && !(qty >= 1 && qty <= assignMeasure.qty)}
+              onClick={() => {
+                if (assignMeasure) onDrawMeasured(pending.id, c.id, qty); else onAssign(pending.id, c.id)
+                onClose()
+              }}>
               {clientShortName(c)}
             </button>
           ))}
@@ -783,13 +838,18 @@ function DropDialog({
     const survivor = find(pending.survivorId)
     const absorbed = find(pending.absorbedId)
     const total = (survivor?.amount ?? 0) + (absorbed?.amount ?? 0)
-    title = 'Put these back together?'
+    const sm = survivor?.measure
+    const am = absorbed?.measure
+    title = sm ? 'Pour it back in?' : 'Put these back together?'
     body = (
       <>
         <p className="hint tiny">
-          {formatMoney(absorbed?.amount ?? 0, cur)} merges into {formatMoney(survivor?.amount ?? 0, cur)},
-          leaving one piece worth <strong>{formatMoney(total, cur)}</strong>. Only do this if
-          they really are one thing again in the shed.
+          {sm && am
+            ? <>{am.qty} {am.unit} goes back into {survivor?.label || 'the container'}, leaving{' '}
+                <strong>{sm.qty + am.qty} {sm.unit}</strong>. Only do this if it really went unused.</>
+            : <>{formatMoney(absorbed?.amount ?? 0, cur)} merges into {formatMoney(survivor?.amount ?? 0, cur)},
+                leaving one piece worth <strong>{formatMoney(total, cur)}</strong>. Only do this if
+                they really are one thing again in the shed.</>}
         </p>
         <div className="drawer-actions">
           <button className="btn primary tiny"
@@ -963,6 +1023,11 @@ function ExpenseEditor({
 }) {
   const [x, setX] = useState(expense)
   const set = (patch: Partial<Expense>) => setX(prev => ({ ...prev, ...patch }))
+  // Quantity tracking is offered on anything billable that isn't a piece
+  // already drawn off a container — i.e. on the shelf, or already measured.
+  const canMeasure = x.billable && (!x.clientId || !!expense.measure)
+  const measure = canMeasure ? x.measure ?? null : null
+  const bad = !!measure && !measureValid(measure)
 
   return (
     <div className="entry-editor">
@@ -997,10 +1062,136 @@ function ExpenseEditor({
         <label className="field"><span>Note</span>
           <input value={x.note} onChange={e => set({ note: e.target.value })} /></label>
       </div>
+      {canMeasure && (
+        <MeasureFields amount={x.amount} cur={state.settings.currency} value={measure} existing={!!expense.measure}
+          onChange={mm => set({ measure: mm })} />
+      )}
       <div className="editor-actions">
-        <button className="btn primary" onClick={() => onSave(x)}>Save</button>
+        <button className="btn primary" disabled={bad}
+          onClick={() => onSave({ ...x, measure: measure ? cleanMeasure(measure) : null })}>Save</button>
         <button className="btn ghost" onClick={onCancel}>Cancel</button>
       </div>
     </div>
+  )
+}
+
+/** True once a measure can actually be drawn from and billed. */
+function measureValid(m: Measure): boolean {
+  return !!m.unit.trim() && m.holds >= 1 && m.qty >= 0 && m.qty <= m.holds
+    && m.unitPrice >= 0 && m.usual >= 1
+}
+
+function cleanMeasure(m: Measure): Measure {
+  return {
+    ...m,
+    unit: m.unit.trim(),
+    clientLabel: m.clientLabel.trim(),
+    holds: Math.floor(m.holds),
+    qty: Math.floor(m.qty),
+    usual: Math.floor(m.usual),
+    unitPrice: Math.round(m.unitPrice * 100) / 100,
+  }
+}
+
+/**
+ * "Track by quantity" and the fields behind it.
+ *
+ * The price box starts at cost per unit plus the default markup and follows
+ * the amount until you type in it yourself — after that it is yours. Most
+ * treatments are worth more than the chemical in them, and the box should be
+ * a starting point, not a verdict.
+ */
+function MeasureFields({
+  amount, cur, value, existing = false, onChange,
+}: {
+  /** What was paid, for the cost-per-unit hint and the price suggestion. */
+  amount: number
+  cur: string
+  value: Measure | null
+  /** Editing a container already in use — show what's left, keep the price. */
+  existing?: boolean
+  onChange: (m: Measure | null) => void
+}) {
+  const [priceTouched, setPriceTouched] = useState(existing)
+  const m = value
+  const set = (patch: Partial<Measure>) => {
+    if (!m) return
+    const next = { ...m, ...patch }
+    // A fresh container is full: "holds" and "left" are the same number.
+    if (!existing && patch.holds !== undefined) next.qty = patch.holds
+    onChange(next)
+  }
+  const num = (v: string) => v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0))
+
+  // Until you type a price yourself, it follows the cost: change the amount or
+  // what the container holds and the suggestion moves with it.
+  const suggested = m ? suggestUnitPrice(amount, m.qty || m.holds) : 0
+  const follow = !!m && !priceTouched && m.unitPrice !== suggested
+  useEffect(() => {
+    if (follow && m) onChange({ ...m, unitPrice: suggested })
+  }, [follow, suggested]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="measure-fields">
+      <label className="check-field">
+        <input type="checkbox" checked={!!m}
+          onChange={e => {
+            setPriceTouched(existing)
+            onChange(e.target.checked
+              ? { unit: '', holds: 0, qty: 0, clientLabel: '', unitPrice: 0, usual: 1 }
+              : null)
+          }} />
+        <span>Track by quantity</span>
+        <span className="hint tiny">— use a bit at a time, bill each job for what it used</span>
+      </label>
+      {m && (
+        <>
+          <div className="field-row">
+            <label className="field narrow-field"><span>Unit</span>
+              <input placeholder="fl oz" value={m.unit} onChange={e => set({ unit: e.target.value })} /></label>
+            <label className="field narrow-field"><span>Holds</span>
+              <input type="number" min="1" step="1" placeholder="32" value={m.holds || ''}
+                onChange={e => set({ holds: num(e.target.value) })} /></label>
+            {existing && (
+              <label className="field narrow-field"><span>Left</span>
+                <input type="number" min="0" step="1" value={m.qty}
+                  onChange={e => set({ qty: num(e.target.value) })} /></label>
+            )}
+            <label className="field narrow-field"><span>Usual per job</span>
+              <input type="number" min="1" step="1" value={m.usual || ''}
+                onChange={e => set({ usual: num(e.target.value) })} /></label>
+          </div>
+          <div className="field-row">
+            <label className="field"><span>Name on invoice</span>
+              <input placeholder="e.g. Herbicide treatment" value={m.clientLabel}
+                onChange={e => set({ clientLabel: e.target.value })} /></label>
+            <label className="field narrow-field"><span>Price per {m.unit.trim() || 'unit'}</span>
+              <input type="number" min="0" step="0.01" value={m.unitPrice || ''}
+                onChange={e => { setPriceTouched(true); set({ unitPrice: Number(e.target.value) || 0 }) }} /></label>
+          </div>
+          <p className="hint tiny">
+            {(m.qty || m.holds) > 0 && amount > 0
+              ? <>Costs you {formatMoney(amount / (m.qty || m.holds), cur)} per {m.unit.trim() || 'unit'}
+                  {!priceTouched && <> — price starts at cost + {DEFAULT_MARKUP_PCT}%</>}.
+                  {' '}Clients see the name on invoice, the count and the price — never what you paid.</>
+              : <>Enter what it holds to see your cost per unit.</>}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** How many units went on this job — starts at the usual, capped at what's left. */
+function QtyField({ measure, value, onChange }: {
+  measure: Measure
+  value: number
+  onChange: (n: number) => void
+}) {
+  return (
+    <label className="field qty-field"><span>How many {measure.unit || 'units'}? ({measure.qty} left)</span>
+      <input type="number" min="1" max={measure.qty} step="1" value={value || ''}
+        onChange={e => onChange(Math.floor(Number(e.target.value) || 0))} />
+    </label>
   )
 }

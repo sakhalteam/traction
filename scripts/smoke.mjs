@@ -988,7 +988,7 @@ const helpText = (await page.locator('.help-view').innerText()).toLowerCase()
 for (const topic of ['flat price', 'given away', 'on the shelf', 'invoice code',
                      'pill colour', 'really delete', 'share',
                      'drag it off the shelf', 'put pieces back together',
-                     'business notes', 'roof treatment']) {
+                     'business notes', 'roof treatment', 'track by quantity']) {
   check(`How-to explains "${topic}"`, helpText.includes(topic))
 }
 check('Help does not overflow a phone',

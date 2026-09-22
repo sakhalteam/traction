@@ -3,7 +3,7 @@ import type { DurationStyle, TractionState } from '../types'
 import {
   decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, liveSeconds,
   monthKey, periodLabel, todayISO, weekStartISO, clientShortName, entryAmount,
-  isAbsorbed,
+  isAbsorbed, billedAmount,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
 import { DurationToggle } from './DurationFields'
@@ -187,7 +187,7 @@ export function ReportsView({
   // Expenses in range → profit picture. Billable materials are treated as a
   // wash (client reimburses them), so profit = earnings − overhead.
   const expStats = useMemo(() => {
-    let billable = 0, overhead = 0
+    let billable = 0, overhead = 0, markup = 0
     const byCat = new Map<string, number>()
     for (const x of state.expenses) {
       if (x.date < from || x.date > to) continue
@@ -196,12 +196,17 @@ export function ReportsView({
       if (isAbsorbed(x)) continue
       if (x.billable) billable += x.amount; else overhead += x.amount
       byCat.set(x.category, (byCat.get(x.category) ?? 0) + x.amount)
+      // Measured material charged at more than it cost you: the gap is money
+      // earned, not reimbursed. Only once it's on a client — a container on the
+      // shelf has earned nothing yet, and a settled piece was given away.
+      if (x.measure && x.billable && x.clientId && !x.settled) markup += billedAmount(x) - x.amount
     }
     const r2 = (v: number) => Math.round(v * 100) / 100
-    return { billable: r2(billable), overhead: r2(overhead), spent: r2(billable + overhead), byCat }
+    return { billable: r2(billable), overhead: r2(overhead), spent: r2(billable + overhead), markup: r2(markup), byCat }
   }, [state.expenses, from, to])
 
-  const net = Math.round((totals.earnings - expStats.overhead) * 100) / 100
+  const income = Math.round((totals.earnings + expStats.markup) * 100) / 100
+  const net = Math.round((income - expStats.overhead) * 100) / 100
   const categorySlices: Slice[] = useMemo(() => (
     [...expStats.byCat.entries()]
       .map(([cat, value]) => ({ key: cat, label: cat, value, color: CLIENT_COLORS[Math.max(0, EXPENSE_CATEGORIES.indexOf(cat)) % CLIENT_COLORS.length] }))
@@ -293,17 +298,19 @@ export function ReportsView({
       <div className="panel">
         <div className="panel-head">
           <h3>Profit</h3>
-          <span className="dim tiny">earnings − overhead</span>
+          <span className="dim tiny">income − overhead</span>
         </div>
         <div className="stat-grid">
-          <StatTile label="Income" value={formatMoney(totals.earnings, cur)} />
+          <StatTile label="Income" value={formatMoney(income, cur)} />
           <StatTile label="Materials" value={formatMoney(expStats.billable, cur)} />
           <StatTile label="Overhead" value={formatMoney(expStats.overhead, cur)} />
           <StatTile label="Net profit" value={formatMoney(net, cur)} accent={net >= 0} />
         </div>
         <p className="hint tiny">
-          Net = earnings − overhead. Billable materials ({formatMoney(expStats.billable, cur)}) are
+          Net = income − overhead. Billable materials ({formatMoney(expStats.billable, cur)}) are
           treated as reimbursed by clients, so they don't reduce profit. Track costs in the Expenses tab.
+          {expStats.markup !== 0 && <> Income includes {formatMoney(expStats.markup, cur)} charged
+            over cost on measured materials.</>}
         </p>
       </div>
 

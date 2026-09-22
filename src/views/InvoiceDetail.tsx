@@ -187,7 +187,10 @@ export function InvoiceDetail({
                           client asking "why only half?" has the answer in hand. */}
                       {x.note && <span className="line-note"> — {x.note}</span>}
                     </td>
-                    <td className="num" /><td className="num" />
+                    {/* Measured material reads like labour: how many where
+                        the hours go, the per-unit price where the rate goes. */}
+                    <td className="num">{x.qty != null ? `× ${x.qty}` : ''}</td>
+                    <td className="num">{x.unitPrice != null ? formatMoney(x.unitPrice, settings.currency) : ''}</td>
                     <td className="num">{formatMoney(x.amount || 0, settings.currency)}</td>
                   </tr>
                 ))}
@@ -292,7 +295,16 @@ function ChargesEditor({
   return (
     <div className="invoice-expenses no-print">
       <span className="label">Materials &amp; charges ({currency}) — one-off charges on this invoice</span>
-      {invoice.expensesSnapshot.map(x => (
+      {invoice.expensesSnapshot.map(x => x.qty != null ? (
+        // Measured material is not a free-typed charge: its price was set on the
+        // container, and its units belong back in it if it comes off.
+        <div key={x.id} className="expense-row measured">
+          <span className="measured-line">
+            {x.label} × {x.qty} @ {formatMoney(x.unitPrice ?? 0, currency)}
+          </span>
+          <span className="hint tiny">To take it off, drag it back to the shelf in Expenses.</span>
+        </div>
+      ) : (
         <div key={x.id} className="expense-row">
           <input placeholder="e.g. Mulch, dump fee" value={x.label}
             onChange={e => onUpdate(invoice.id, x.id, { label: e.target.value })} />

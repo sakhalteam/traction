@@ -6,8 +6,10 @@ import type {
   Client,
   DurationStyle,
   Expense,
+  ExpenseLine,
   Favorite,
   Invoice,
+  Measure,
   Person,
   Service,
   Settings,
@@ -491,10 +493,29 @@ export function recombineExpenses(
   if (survivor.invoiceId || absorbed.some(x => x.invoiceId)) return null
   if (isAbsorbed(survivor) || absorbed.some(isAbsorbed)) return null
 
-  const cents = [survivor, ...absorbed].reduce((s, x) => s + Math.round(x.amount * 100), 0)
-  const total = cents / 100
+  const total = [survivor, ...absorbed].reduce((s, x) => s + Math.round(x.amount * 100), 0) / 100
   const money = (n: number) => formatMoney(n, currency)
   const pieces = absorbed.length + 1
+
+  // Measured material pours back in by the unit. Units only add up when they
+  // are the same unit, which a shared lineage already implies — checked anyway,
+  // because a quart counted in fl oz and one counted in "treatments" summed
+  // would be a number that means nothing.
+  if (survivor.measure || absorbed.some(x => x.measure)) {
+    const m = survivor.measure
+    if (!m || absorbed.some(x => !x.measure || x.measure.unit !== m.unit)) return null
+    const qty = m.qty + absorbed.reduce((s, x) => s + (x.measure?.qty ?? 0), 0)
+    return [
+      { ...survivor, amount: total, measure: { ...m, qty } },
+      ...absorbed.map(x => ({
+        ...x,
+        absorbedInto: survivor.id,
+        absorbedAmount: x.amount,
+        amount: 0,
+        measure: x.measure ? { ...x.measure, qty: 0 } : x.measure,
+      })),
+    ]
+  }
 
   return [
     {
@@ -513,6 +534,106 @@ export function recombineExpenses(
       note: [stripSplitNote(x.note), `Merged back into ${survivor.label || 'its sibling'}`]
         .filter(Boolean).join(' · '),
     })),
+  ]
+}
+
+// ---- Measured material ---------------------------------------------------
+
+/** The markup a new measured container's per-unit price is suggested at. */
+export const DEFAULT_MARKUP_PCT = 20
+
+const toCents = (n: number) => Math.round(n * 100)
+
+/** What one unit in this row cost you. */
+export function costPerUnit(x: Pick<Expense, 'amount' | 'measure'>): number {
+  const qty = x.measure?.qty ?? 0
+  return qty > 0 ? x.amount / qty : 0
+}
+
+/**
+ * Where the per-unit price box starts: cost per unit plus the default markup,
+ * rounded UP to the cent so the suggestion never lands under cost + markup.
+ */
+export function suggestUnitPrice(amount: number, qty: number, markupPct = DEFAULT_MARKUP_PCT): number {
+  if (!(qty > 0) || !(amount > 0)) return 0
+  return Math.ceil((amount / qty) * (1 + markupPct / 100) * 100) / 100
+}
+
+/**
+ * What a client is charged for this row.
+ *
+ * For ordinary material that is the amount — billed at cost, as it always has
+ * been. For measured material it is units x the frozen per-unit price, which
+ * is NOT the amount: the amount is what you paid, and Reports needs that
+ * number to stay true.
+ */
+export function billedAmount(x: Pick<Expense, 'amount' | 'measure'>): number {
+  if (!x.measure) return x.amount
+  return toCents(x.measure.qty * x.measure.unitPrice) / 100
+}
+
+/**
+ * The frozen invoice line for an expense.
+ *
+ * Measured material prints under its client-facing name with units and
+ * per-unit price, and deliberately WITHOUT the note: the note is where your
+ * own shorthand lives ("Crossbow from HD"), and a client has no business
+ * reading what you paid for the jug.
+ */
+export function expenseLine(x: Expense): ExpenseLine {
+  if (x.measure) {
+    return {
+      id: x.id,
+      label: x.measure.clientLabel.trim() || x.label || 'Charge',
+      amount: billedAmount(x),
+      qty: x.measure.qty,
+      unitPrice: x.measure.unitPrice,
+    }
+  }
+  return { id: x.id, label: x.label || 'Charge', amount: x.amount || 0, note: x.note }
+}
+
+/**
+ * Draw `qty` units off a measured container for a client.
+ *
+ * Asking for all of what's left simply hands the whole row over — nothing is
+ * left to stay on the shelf, so the container leaves it too. Otherwise the
+ * drawn piece is a NEW row carrying its share of the cost, and the container
+ * keeps the rest; the cents always sum to exactly what was paid.
+ *
+ * Both rows share a lineage, so a piece taken back off a client can be dropped
+ * onto the container to pour the unused units back in.
+ */
+export function drawMeasured(x: Expense, qty: number, clientId: string): Expense[] | null {
+  if (!x.measure || x.invoiceId || x.settled || isAbsorbed(x)) return null
+  const have = x.measure.qty
+  const take = Math.floor(qty)
+  if (!(take >= 1) || take > have) return null
+  if (take === have) return [{ ...x, clientId }]
+
+  const pieceCents = Math.round(toCents(x.amount) * take / have)
+  const lineageId = x.lineageId ?? genId()
+  return [
+    {
+      ...x,
+      lineageId,
+      amount: (toCents(x.amount) - pieceCents) / 100,
+      measure: { ...x.measure, qty: have - take },
+    },
+    {
+      ...x,
+      id: genId(),
+      lineageId,
+      clientId,
+      amount: pieceCents / 100,
+      measure: { ...x.measure, qty: take },
+      invoiceId: null,
+      settled: null,
+      absorbedInto: null,
+      // Same stored photo as the container: one purchase, one receipt.
+      receiptPath: x.receiptPath,
+      createdAt: Date.now(),
+    },
   ]
 }
 
@@ -1004,6 +1125,25 @@ export function agingOf(invoice: Pick<Invoice, 'dueDate'>, today: string): {
 
 // ---- Persistence ---------------------------------------------------------
 
+/**
+ * A measure is only real when it can be counted: a hand-edited blob with a
+ * string where a number belongs would otherwise put NaN on an invoice.
+ */
+function hydrateMeasure(m: unknown): Measure | null {
+  if (!m || typeof m !== 'object') return null
+  const r = m as Partial<Measure>
+  const num = (v: unknown, fallback: number) => typeof v === 'number' && Number.isFinite(v) ? v : fallback
+  const qty = Math.max(0, Math.floor(num(r.qty, 0)))
+  return {
+    unit: typeof r.unit === 'string' ? r.unit : '',
+    holds: Math.max(1, Math.floor(num(r.holds, qty || 1))),
+    qty,
+    clientLabel: typeof r.clientLabel === 'string' ? r.clientLabel : '',
+    unitPrice: Math.max(0, num(r.unitPrice, 0)),
+    usual: Math.max(1, Math.floor(num(r.usual, 1))),
+  }
+}
+
 /** Fill any missing fields so older/partial saved blobs hydrate safely. */
 export function hydrateState(raw: unknown): TractionState {
   const r = (raw ?? {}) as Partial<TractionState>
@@ -1040,6 +1180,8 @@ export function hydrateState(raw: unknown): TractionState {
     ...(typeof x.lineageId === 'string' && x.lineageId ? { lineageId: x.lineageId } : {}),
     absorbedInto: typeof x.absorbedInto === 'string' ? x.absorbedInto : null,
     ...(typeof x.absorbedAmount === 'number' ? { absorbedAmount: x.absorbedAmount } : {}),
+    // Absent on everything logged before measured material existed.
+    measure: hydrateMeasure(x.measure),
   }))
   const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
     // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.

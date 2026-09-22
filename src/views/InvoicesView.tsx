@@ -3,7 +3,7 @@ import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, todayISO,
   agingOf, AGING_LABELS, nextInvoiceNumber, clientFullName, entryAmount, isFlat,
-  isAbsorbed, type AgingBucket,
+  isAbsorbed, billedAmount, type AgingBucket,
 } from '../store'
 import { InvoiceDetail } from './InvoiceDetail'
 import { Picker } from './Picker'
@@ -102,7 +102,8 @@ function InvoiceBuilder({
   const included = candidates.filter(e => !excluded.has(e.id))
   const includedExp = expCandidates.filter(x => !excludedExp.has(x.id))
   const breakdown = useMemo(() => buildBreakdown(included, state.services), [included, state.services])
-  const expSum = includedExp.reduce((s, x) => s + x.amount, 0)
+  // What the client is charged, which for measured material is not what you paid.
+  const expSum = includedExp.reduce((s, x) => s + billedAmount(x), 0)
   const grand = Math.round((breakdown.total + expSum) * 100) / 100
 
   const toggle = (id: string) => setExcluded(prev => {
@@ -193,9 +194,11 @@ function InvoiceBuilder({
                         <label>
                           <input type="checkbox" checked={inc} onChange={() => toggleExp(x.id)} />
                           <span className="cand-date">{formatDate(x.date)}</span>
-                          <span className="cand-svc"><span className="expense-badge billable tiny">{x.category}</span> {x.label}</span>
+                          <span className="cand-svc"><span className="expense-badge billable tiny">{x.category}</span> {x.measure
+                            ? <>{x.measure.clientLabel || x.label} × {x.measure.qty} <span className="dim">({x.label})</span></>
+                            : x.label}</span>
                           <span className="cand-dur" />
-                          <span className="cand-amt">{formatMoney(x.amount, cur)}</span>
+                          <span className="cand-amt">{formatMoney(billedAmount(x), cur)}</span>
                         </label>
                       </li>
                     )

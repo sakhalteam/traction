@@ -233,6 +233,25 @@ const SECTIONS: HelpSection[] = [
           finding that out in somebody's yard is too late.</>,
       },
       {
+        title: 'Track by quantity',
+        body: <>For material you use a bit at a time — a quart of herbicide, a bucket of
+          zinc — tick <strong>Track by quantity</strong> when you log it (or later, with
+          <Key>✎</Key> on anything on the shelf). Say what one unit is (<em>fl oz</em>), how
+          many it holds (<em>32</em>), the <strong>name on invoice</strong> (<em>Herbicide
+          treatment</em>) and a <strong>price per unit</strong>, which starts at your cost
+          + 20% for you to change. Log what you <em>paid</em> as the amount, never the
+          marked-up figure — Reports needs the real cost.</>,
+      },
+      {
+        title: 'Draw some off for a job',
+        body: <><Key>◎</Key> or a drag off the shelf asks how many went on the job, then
+          whose job it was. That many comes out of the container — the shelf shows
+          <em>30 of 32 fl oz left</em> — and the client's invoice reads <em>Herbicide
+          treatment × 2 @ $10.00</em>. Never the brand, never what it cost you. What you
+          charge over cost counts as income in Reports. Unused? Drag it back to the shelf
+          and onto the container to pour it back in.</>,
+      },
+      {
         title: 'The tiles open',
         body: <>The two tiles at the top show exactly which expenses make up each number,
           with actions on every row. They are open by default whenever they hold anything —
