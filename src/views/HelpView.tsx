@@ -237,19 +237,28 @@ const SECTIONS: HelpSection[] = [
         body: <>For material you use a bit at a time — a quart of herbicide, a bucket of
           zinc — tick <strong>Track by quantity</strong> when you log it (or later, with
           <Key>✎</Key> on anything on the shelf). Say what one unit is (<em>fl oz</em>), how
-          many it holds (<em>32</em>), the <strong>name on invoice</strong> (<em>Herbicide
-          treatment</em>) and a <strong>price per unit</strong>, which starts at your cost
-          + 20% for you to change. Log what you <em>paid</em> as the amount, never the
-          marked-up figure — Reports needs the real cost.</>,
+          many it holds (<em>32</em>), and your usual name, markup and fee. Those are only
+          <em>defaults</em> — the real pricing happens per job. Log what you <em>paid</em>
+          as the amount, never a marked-up figure: Reports needs the real cost.</>,
       },
       {
         title: 'Draw some off for a job',
-        body: <><Key>◎</Key> or a drag off the shelf asks how many went on the job, then
-          whose job it was. That many comes out of the container — the shelf shows
-          <em>30 of 32 fl oz left</em> — and the client's invoice reads <em>Herbicide
-          treatment × 2 @ $10.00</em>. Never the brand, never what it cost you. What you
-          charge over cost counts as income in Reports. Unused? Drag it back to the shelf
-          and onto the container to pour it back in.</>,
+        body: <><Key>◎</Key> or a drag off the shelf asks how much went on the job, what
+          to call it on the invoice, and the <strong>markup</strong> and <strong>service
+          fee</strong> for <em>this</em> job. Change any of them — a big lawn belonging to
+          someone you want to go easy on gets a smaller fee, and the record says so
+          afterwards. A line underneath quotes what they will pay and what it cost you.</>,
+      },
+      {
+        title: 'What the client sees, and what you keep',
+        body: <>With a fee, the invoice reads one line — <em>Herbicide treatment — $10.00</em>
+          — because dividing a bundled price back out would quote a per-unit rate you never
+          set. Without a fee it reads <em>Pruning blade × 2 @ $10.80</em>, which is how
+          straight pass-through material should look. Either way <strong>you</strong> still
+          see the count on the shelf and in History, so past jobs answer "how much did that
+          size of yard take?". Never the brand, never your cost. Markup and fees both count
+          as income in Reports, listed separately. Unused? Drag it back to the shelf and
+          onto its container to pour it back in.</>,
       },
       {
         title: 'The tiles open',

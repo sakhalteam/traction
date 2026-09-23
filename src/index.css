@@ -1050,7 +1050,16 @@ textarea { resize: vertical; }
 .measure-fields .field-row { margin-top: 8px; }
 .check-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
 .check-field input { width: auto; margin: 0; }
-.qty-field { max-width: 220px; margin: 6px 0; }
+.measure-assign { margin: 6px 0 10px; }
+.measure-assign .field-row { margin-bottom: 6px; }
+/* The readout under the pricing fields. Reads as a sentence, not a total row —
+   it is telling you what the client will see, not adding up a bill. */
+.measure-quote {
+  margin: 2px 0 0; font-size: 0.85rem; line-height: 1.45;
+  padding: 7px 10px; border-radius: 8px;
+  background: rgba(56, 189, 248, 0.10); border: 1px solid rgba(56, 189, 248, 0.22);
+}
+.measure-quote strong { font-variant-numeric: tabular-nums; }
 .expense-row.measured { flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 0; }
 .measured-line { font-variant-numeric: tabular-nums; }
 

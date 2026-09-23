@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import type { Expense, Measure, SettledHow, TractionState } from '../types'
 import {
   EXPENSE_CATEGORIES, clientColor, clientFullName, clientShortName,
   formatDate, formatMoney, makeExpense, todayISO,
   expenseState, isOpenExpense, isAbsorbed, lineageMark, siblingsOf, receiptRefCount,
-  SETTLED_LABELS, SETTLED_OPTIONS, DEFAULT_MARKUP_PCT, billedAmount, costPerUnit, suggestUnitPrice,
+  SETTLED_LABELS, SETTLED_OPTIONS, DEFAULT_MARKUP_PCT, billedAmount, costPerUnit,
+  priceUnits, drawCost, type MeasurePricing,
 } from '../store'
 import { ClientLabel } from '../Chrome'
 import { supabase } from '../supabaseClient'
@@ -42,7 +43,7 @@ export function ExpensesView({
   onAssign: (id: string, clientId: string | null) => void
   onSplit: (id: string, billedAmount: number) => void
   onSplitEqually: (id: string, parts: number) => void
-  onDrawMeasured: (id: string, clientId: string, qty: number) => void
+  onDrawMeasured: (id: string, clientId: string, qty: number, pricing: MeasurePricing) => void
   onRecombine: (survivorId: string, absorbedIds: string[]) => void
   onDetachFromInvoice: (id: string) => void
   onDeleteInvoice: (id: string) => void
@@ -448,7 +449,7 @@ function ExpenseRow({
   onAssign: (id: string, clientId: string | null) => void
   onSplit: (id: string, billedAmount: number) => void
   onSplitEqually: (id: string, parts: number) => void
-  onDrawMeasured: (id: string, clientId: string, qty: number) => void
+  onDrawMeasured: (id: string, clientId: string, qty: number, pricing: MeasurePricing) => void
   onGoInvoice: (clientId?: string) => void
   dragHandle: (id: string) => { onPointerDown: (e: ReactPointerEvent) => void }
   draggingId: string | null
@@ -547,7 +548,7 @@ function ExpenseRow({
             </span>
           )}
           {m && (st === 'shelf'
-            ? <span className="measure-tag" title={`${formatMoney(costPerUnit(expense), cur)} cost per ${m.unit || 'unit'}; clients pay ${formatMoney(m.unitPrice, cur)}`}>
+            ? <span className="measure-tag" title={`Costs you ${formatMoney(costPerUnit(expense), cur)} per ${m.unit || 'unit'} — pricing is chosen per job when you assign it`}>
                 {m.qty} of {m.holds} {m.unit} left
               </span>
             : <span className="measure-tag" title={`${m.qty} ${m.unit} of ${expense.label || 'this'}`}>
@@ -612,9 +613,11 @@ function ExpenseRow({
       {drawer === 'assign' && (
         <AssignDrawer
           state={state}
-          measure={m}
-          onPick={(id, qty) => {
-            if (m) onDrawMeasured(expense.id, id, qty); else onAssign(expense.id, id)
+          expense={expense}
+          cur={cur}
+          onPick={(id, draft) => {
+            if (draft) onDrawMeasured(expense.id, id, draft.qty, draft)
+            else onAssign(expense.id, id)
             setDrawer(null)
           }}
           onCancel={() => setDrawer(null)}
@@ -682,24 +685,27 @@ function SettleDrawer({
 
 /** Attach a shelf expense to whoever ended up using it. */
 function AssignDrawer({
-  state, measure, onPick, onCancel,
+  state, expense, cur, onPick, onCancel,
 }: {
   state: TractionState
-  /** Set for measured material: how much went on the job is asked first. */
-  measure: Measure | null
-  onPick: (clientId: string, qty: number) => void
+  expense: Expense
+  cur: string
+  /** `draft` is null for ordinary material, which has nothing to price. */
+  onPick: (clientId: string, draft: DrawDraft | null) => void
   onCancel: () => void
 }) {
   const clients = state.clients.filter(c => !c.archived)
-  const [qty, setQty] = useState(() => measure ? Math.min(measure.usual, measure.qty) : 0)
-  const bad = !!measure && !(qty >= 1 && qty <= measure.qty)
+  const m = expense.measure ?? null
+  const [draft, setDraft] = useState<DrawDraft>(() => newDraft(m))
+  const bad = !!m && !draftValid(draft, m)
   return (
     <div className="row-drawer">
       <span className="drawer-label">Whose job did this go to?</span>
-      {measure && <QtyField measure={measure} value={qty} onChange={setQty} />}
+      {m && <MeasureAssignFields expense={expense} measure={m} cur={cur} draft={draft} onChange={setDraft} />}
       <div className="settle-opts">
         {clients.map(c => (
-          <button key={c.id} type="button" className="chip" disabled={bad} onClick={() => onPick(c.id, qty)}>
+          <button key={c.id} type="button" className="chip" disabled={bad}
+            onClick={() => onPick(c.id, m ? draft : null)}>
             {clientShortName(c)}
           </button>
         ))}
@@ -793,7 +799,7 @@ function DropDialog({
   state: TractionState
   onClose: () => void
   onAssign: (id: string, clientId: string | null) => void
-  onDrawMeasured: (id: string, clientId: string, qty: number) => void
+  onDrawMeasured: (id: string, clientId: string, qty: number, pricing: MeasurePricing) => void
   onRecombine: (survivorId: string, absorbedIds: string[]) => void
   onDetach: (id: string) => void
   onDeleteInvoice: (id: string) => void
@@ -801,8 +807,9 @@ function DropDialog({
   const cur = state.settings.currency
   const clients = state.clients.filter(c => !c.archived)
   const find = (id: string) => state.expenses.find(x => x.id === id) ?? null
-  const assignMeasure = pending.kind === 'assign' ? find(pending.id)?.measure ?? null : null
-  const [qty, setQty] = useState(() => assignMeasure ? Math.min(assignMeasure.usual, assignMeasure.qty) : 0)
+  const assignExp = pending.kind === 'assign' ? find(pending.id) : null
+  const assignMeasure = assignExp?.measure ?? null
+  const [draft, setDraft] = useState<DrawDraft>(() => newDraft(assignMeasure))
 
   let body: ReactNode = null
   let title = ''
@@ -819,13 +826,17 @@ function DropDialog({
             : <>{exp?.label || 'This'} comes off the shelf and waits to be billed. It is not on
                 an invoice yet — that is still a separate step.</>}
         </p>
-        {assignMeasure && <QtyField measure={assignMeasure} value={qty} onChange={setQty} />}
+        {assignMeasure && assignExp && (
+          <MeasureAssignFields expense={assignExp} measure={assignMeasure} cur={cur}
+            draft={draft} onChange={setDraft} />
+        )}
         <div className="settle-opts">
           {clients.map(c => (
             <button key={c.id} type="button" className="chip"
-              disabled={!!assignMeasure && !(qty >= 1 && qty <= assignMeasure.qty)}
+              disabled={!!assignMeasure && !draftValid(draft, assignMeasure)}
               onClick={() => {
-                if (assignMeasure) onDrawMeasured(pending.id, c.id, qty); else onAssign(pending.id, c.id)
+                if (assignMeasure) onDrawMeasured(pending.id, c.id, draft.qty, draft)
+                else onAssign(pending.id, c.id)
                 onClose()
               }}>
               {clientShortName(c)}
@@ -1078,7 +1089,7 @@ function ExpenseEditor({
 /** True once a measure can actually be drawn from and billed. */
 function measureValid(m: Measure): boolean {
   return !!m.unit.trim() && m.holds >= 1 && m.qty >= 0 && m.qty <= m.holds
-    && m.unitPrice >= 0 && m.usual >= 1
+    && m.markupPct >= 0 && m.serviceFee >= 0 && m.usual >= 1
 }
 
 function cleanMeasure(m: Measure): Measure {
@@ -1089,30 +1100,102 @@ function cleanMeasure(m: Measure): Measure {
     holds: Math.floor(m.holds),
     qty: Math.floor(m.qty),
     usual: Math.floor(m.usual),
-    unitPrice: Math.round(m.unitPrice * 100) / 100,
+    markupPct: Math.round(m.markupPct * 10) / 10,
+    serviceFee: Math.round(m.serviceFee * 100) / 100,
   }
+}
+
+/**
+ * What one assignment charges: how much went out, under what name, at what
+ * markup, with what fee. Seeded from the container and then free to differ —
+ * the same jug can go out on gentler terms for the neighbour you like.
+ */
+interface DrawDraft extends MeasurePricing {
+  qty: number
+}
+
+function newDraft(m: Measure | null): DrawDraft {
+  if (!m) return { qty: 0, clientLabel: '', markupPct: 0, serviceFee: 0 }
+  return {
+    qty: Math.min(Math.max(1, m.usual), Math.max(1, m.qty)),
+    clientLabel: m.clientLabel,
+    markupPct: m.markupPct,
+    serviceFee: m.serviceFee,
+  }
+}
+
+function draftValid(d: DrawDraft, m: Measure): boolean {
+  return d.qty >= 1 && d.qty <= m.qty && d.markupPct >= 0 && d.serviceFee >= 0
+}
+
+/**
+ * The pricing decision, made at the moment material goes out the door.
+ *
+ * Every number here is typed rather than computed, and the total underneath is
+ * the only thing doing arithmetic. A big lawn belonging to someone you want to
+ * go easy on gets a smaller fee, and the record afterwards says so.
+ */
+function MeasureAssignFields({
+  expense, measure, cur, draft, onChange,
+}: {
+  expense: Expense
+  measure: Measure
+  cur: string
+  draft: DrawDraft
+  onChange: (d: DrawDraft) => void
+}) {
+  const set = (patch: Partial<DrawDraft>) => onChange({ ...draft, ...patch })
+  const unit = measure.unit || 'units'
+  const cost = drawCost(expense, draft.qty)
+  const billed = priceUnits(cost, draft.markupPct, draft.serviceFee)
+  const name = draft.clientLabel.trim() || expense.label || 'This'
+
+  return (
+    <div className="measure-assign">
+      <div className="field-row">
+        <label className="field narrow-field"><span>How many {unit}? ({measure.qty} left)</span>
+          <input type="number" min="1" max={measure.qty} step="1" value={draft.qty || ''}
+            onChange={e => set({ qty: Math.floor(Number(e.target.value) || 0) })} /></label>
+        <label className="field"><span>Name on invoice</span>
+          <input placeholder={expense.label || 'e.g. Herbicide treatment'} value={draft.clientLabel}
+            onChange={e => set({ clientLabel: e.target.value })} /></label>
+      </div>
+      <div className="field-row">
+        <label className="field narrow-field"><span>Markup %</span>
+          <input type="number" min="0" step="1" value={draft.markupPct || ''}
+            onChange={e => set({ markupPct: Math.max(0, Number(e.target.value) || 0) })} /></label>
+        <label className="field narrow-field"><span>Service fee</span>
+          <input type="number" min="0" step="0.01" placeholder="0.00" value={draft.serviceFee || ''}
+            onChange={e => set({ serviceFee: Math.max(0, Number(e.target.value) || 0) })} /></label>
+      </div>
+      {/* The only computed number on the panel, and it is a readout rather than
+          a field: everything above it is yours to overrule. */}
+      <p className="measure-quote">
+        <strong>{formatMoney(billed, cur)}</strong> on their invoice as &ldquo;{name}&rdquo;
+        <span className="dim"> · {draft.qty} {unit} costs you {formatMoney(cost, cur)}</span>
+      </p>
+    </div>
+  )
 }
 
 /**
  * "Track by quantity" and the fields behind it.
  *
- * The price box starts at cost per unit plus the default markup and follows
- * the amount until you type in it yourself — after that it is yours. Most
- * treatments are worth more than the chemical in them, and the box should be
- * a starting point, not a verdict.
+ * Everything priced here is a DEFAULT. The markup, fee and name that actually
+ * reach an invoice are chosen per job in the assign drawer, so a container
+ * carries your usual terms rather than fixed ones.
  */
 function MeasureFields({
   amount, cur, value, existing = false, onChange,
 }: {
-  /** What was paid, for the cost-per-unit hint and the price suggestion. */
+  /** What was paid, for the cost-per-unit hint. */
   amount: number
   cur: string
   value: Measure | null
-  /** Editing a container already in use — show what's left, keep the price. */
+  /** Editing a container already in use — show what is left in it. */
   existing?: boolean
   onChange: (m: Measure | null) => void
 }) {
-  const [priceTouched, setPriceTouched] = useState(existing)
   const m = value
   const set = (patch: Partial<Measure>) => {
     if (!m) return
@@ -1122,25 +1205,15 @@ function MeasureFields({
     onChange(next)
   }
   const num = (v: string) => v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0))
-
-  // Until you type a price yourself, it follows the cost: change the amount or
-  // what the container holds and the suggestion moves with it.
-  const suggested = m ? suggestUnitPrice(amount, m.qty || m.holds) : 0
-  const follow = !!m && !priceTouched && m.unitPrice !== suggested
-  useEffect(() => {
-    if (follow && m) onChange({ ...m, unitPrice: suggested })
-  }, [follow, suggested]) // eslint-disable-line react-hooks/exhaustive-deps
+  const perUnit = m && (m.qty || m.holds) > 0 ? amount / (m.qty || m.holds) : 0
 
   return (
     <div className="measure-fields">
       <label className="check-field">
         <input type="checkbox" checked={!!m}
-          onChange={e => {
-            setPriceTouched(existing)
-            onChange(e.target.checked
-              ? { unit: '', holds: 0, qty: 0, clientLabel: '', unitPrice: 0, usual: 1 }
-              : null)
-          }} />
+          onChange={e => onChange(e.target.checked
+            ? { unit: '', holds: 0, qty: 0, clientLabel: '', markupPct: DEFAULT_MARKUP_PCT, serviceFee: 0, usual: 1 }
+            : null)} />
         <span>Track by quantity</span>
         <span className="hint tiny">— use a bit at a time, bill each job for what it used</span>
       </label>
@@ -1165,33 +1238,22 @@ function MeasureFields({
             <label className="field"><span>Name on invoice</span>
               <input placeholder="e.g. Herbicide treatment" value={m.clientLabel}
                 onChange={e => set({ clientLabel: e.target.value })} /></label>
-            <label className="field narrow-field"><span>Price per {m.unit.trim() || 'unit'}</span>
-              <input type="number" min="0" step="0.01" value={m.unitPrice || ''}
-                onChange={e => { setPriceTouched(true); set({ unitPrice: Number(e.target.value) || 0 }) }} /></label>
+            <label className="field narrow-field"><span>Markup %</span>
+              <input type="number" min="0" step="1" value={m.markupPct || ''}
+                onChange={e => set({ markupPct: Math.max(0, Number(e.target.value) || 0) })} /></label>
+            <label className="field narrow-field"><span>Service fee</span>
+              <input type="number" min="0" step="0.01" placeholder="0.00" value={m.serviceFee || ''}
+                onChange={e => set({ serviceFee: Math.max(0, Number(e.target.value) || 0) })} /></label>
           </div>
           <p className="hint tiny">
-            {(m.qty || m.holds) > 0 && amount > 0
-              ? <>Costs you {formatMoney(amount / (m.qty || m.holds), cur)} per {m.unit.trim() || 'unit'}
-                  {!priceTouched && <> — price starts at cost + {DEFAULT_MARKUP_PCT}%</>}.
-                  {' '}Clients see the name on invoice, the count and the price — never what you paid.</>
+            {perUnit > 0
+              ? <>Costs you {formatMoney(perUnit, cur)} per {m.unit.trim() || 'unit'}. These are
+                  starting points — the markup, fee and name are yours to change on every job,
+                  and clients never see what you paid.</>
               : <>Enter what it holds to see your cost per unit.</>}
           </p>
         </>
       )}
     </div>
-  )
-}
-
-/** How many units went on this job — starts at the usual, capped at what's left. */
-function QtyField({ measure, value, onChange }: {
-  measure: Measure
-  value: number
-  onChange: (n: number) => void
-}) {
-  return (
-    <label className="field qty-field"><span>How many {measure.unit || 'units'}? ({measure.qty} left)</span>
-      <input type="number" min="1" max={measure.qty} step="1" value={value || ''}
-        onChange={e => onChange(Math.floor(Number(e.target.value) || 0))} />
-    </label>
   )
 }

@@ -2,7 +2,7 @@ import { Fragment, useMemo, useRef, useState } from 'react'
 import type { Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney,
-  clientAttn, clientFullName,
+  clientAttn, clientFullName, isMeasuredLine,
 } from '../store'
 import { ReceiptLink } from './ReceiptLink'
 import { JobPhotos } from './JobPhotos'
@@ -295,12 +295,15 @@ function ChargesEditor({
   return (
     <div className="invoice-expenses no-print">
       <span className="label">Materials &amp; charges ({currency}) — one-off charges on this invoice</span>
-      {invoice.expensesSnapshot.map(x => x.qty != null ? (
-        // Measured material is not a free-typed charge: its price was set on the
-        // container, and its units belong back in it if it comes off.
+      {invoice.expensesSnapshot.map(x => isMeasuredLine(x) ? (
+        // Measured material is not a free-typed charge: its price was decided
+        // when it was assigned, and its units belong back in the container if
+        // it comes off.
         <div key={x.id} className="expense-row measured">
           <span className="measured-line">
-            {x.label} × {x.qty} @ {formatMoney(x.unitPrice ?? 0, currency)}
+            {x.label}
+            {x.qty != null && <> × {x.qty} @ {formatMoney(x.unitPrice ?? 0, currency)}</>}
+            {' — '}{formatMoney(x.amount || 0, currency)}
           </span>
           <span className="hint tiny">To take it off, drag it back to the shelf in Expenses.</span>
         </div>

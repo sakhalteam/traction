@@ -250,16 +250,44 @@ export interface Measure {
    * piece drawn off it, what went to that client. Whole numbers only.
    */
   qty: number
-  /** The name the client sees on their invoice. Blank falls back to the label. */
+  /**
+   * The name the client sees on their invoice. Blank falls back to the label.
+   *
+   * A default on the container, chosen again per assignment — the same jug can
+   * go out as "Herbicide treatment" for one client and whatever suits the next.
+   */
   clientLabel: string
   /**
-   * What a client is charged per unit. Copied onto each piece when it is drawn
-   * off, like an hourly rate onto a time entry, so repricing the container
-   * never quietly changes a job already done.
+   * Percentage added to what these units cost you.
+   *
+   * A default on the container, FROZEN onto each piece when it is drawn off —
+   * like an hourly rate onto a time entry — so repricing the jug never quietly
+   * changes a job already done.
+   *
+   * Kept as a percentage rather than folded into a finished price because the
+   * next jug will cost something different, and a percentage still means what
+   * it meant. It is also a number worth being able to look back at: what you
+   * charged over cost, job by job, is half the reason to record it at all.
    */
-  unitPrice: number
+  markupPct: number
+  /**
+   * A flat amount added once per job, on top of the marked-up material.
+   *
+   * Per JOB, never per unit. Three fl oz on a big lawn belonging to someone you
+   * want to go easy on is still one application, and this is the number you
+   * reach for to say so — which is why it is always typed and never derived. A
+   * formula you cannot overrule would price that job correctly and lose the
+   * reason you did it.
+   */
+  serviceFee: number
   /** The amount usually used on one job — where the assign box starts. */
   usual: number
+  /**
+   * LEGACY. Containers set up before markup/fee carried one flat per-unit
+   * price. `hydrateMeasure` converts it to the equivalent markup and nothing
+   * reads it afterwards; kept on the type so an old blob still loads.
+   */
+  unitPrice?: number
 }
 
 /**
@@ -277,10 +305,25 @@ export interface ExpenseLine {
   /** Why this line is what it is — "half of $77.04, remainder unused". Printed
    *  under the label, so a partial charge explains itself years later. */
   note?: string
-  /** Measured material only: how many units, printed where hours would go. */
+  /**
+   * Measured material billed at a straight per-unit price: how many units,
+   * printed where the hours go.
+   *
+   * ABSENT once a service fee is involved. Dividing a bundled price back out
+   * prints a per-unit figure that answers a question about your pricing nobody
+   * asked — the client sees one named line and a total instead.
+   */
   qty?: number
-  /** Measured material only: the frozen per-unit price, printed as the rate. */
+  /** As `qty`: the frozen per-unit price, printed where the rate goes. */
   unitPrice?: number
+  /**
+   * This line came off a measured container, however it ended up priced.
+   *
+   * Needed because a fee-bundled line has no `qty` to give it away, and the
+   * invoice editor must not offer it as a free-typed charge — its units are
+   * owed back to the jug if it ever comes off.
+   */
+  measured?: boolean
 }
 
 export interface Invoice {

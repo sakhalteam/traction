@@ -3,7 +3,7 @@ import type { DurationStyle, TractionState } from '../types'
 import {
   decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, liveSeconds,
   monthKey, periodLabel, todayISO, weekStartISO, clientShortName, entryAmount,
-  isAbsorbed, billedAmount,
+  isAbsorbed,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
 import { DurationToggle } from './DurationFields'
@@ -187,7 +187,7 @@ export function ReportsView({
   // Expenses in range → profit picture. Billable materials are treated as a
   // wash (client reimburses them), so profit = earnings − overhead.
   const expStats = useMemo(() => {
-    let billable = 0, overhead = 0, markup = 0
+    let billable = 0, overhead = 0, markup = 0, fees = 0
     const byCat = new Map<string, number>()
     for (const x of state.expenses) {
       if (x.date < from || x.date > to) continue
@@ -199,13 +199,23 @@ export function ReportsView({
       // Measured material charged at more than it cost you: the gap is money
       // earned, not reimbursed. Only once it's on a client — a container on the
       // shelf has earned nothing yet, and a settled piece was given away.
-      if (x.measure && x.billable && x.clientId && !x.settled) markup += billedAmount(x) - x.amount
+      //
+      // Split, because they answer different questions. Markup is "am I making
+      // the material back"; fees are "what is the work of applying it worth".
+      // Added together they would hide the one you actually want to tune.
+      if (x.measure && x.billable && x.clientId && !x.settled) {
+        markup += Math.round(x.amount * (x.measure.markupPct / 100) * 100) / 100
+        fees += x.measure.serviceFee
+      }
     }
     const r2 = (v: number) => Math.round(v * 100) / 100
-    return { billable: r2(billable), overhead: r2(overhead), spent: r2(billable + overhead), markup: r2(markup), byCat }
+    return {
+      billable: r2(billable), overhead: r2(overhead), spent: r2(billable + overhead),
+      markup: r2(markup), fees: r2(fees), uplift: r2(markup + fees), byCat,
+    }
   }, [state.expenses, from, to])
 
-  const income = Math.round((totals.earnings + expStats.markup) * 100) / 100
+  const income = Math.round((totals.earnings + expStats.uplift) * 100) / 100
   const net = Math.round((income - expStats.overhead) * 100) / 100
   const categorySlices: Slice[] = useMemo(() => (
     [...expStats.byCat.entries()]
@@ -306,11 +316,21 @@ export function ReportsView({
           <StatTile label="Overhead" value={formatMoney(expStats.overhead, cur)} />
           <StatTile label="Net profit" value={formatMoney(net, cur)} accent={net >= 0} />
         </div>
+        {/* What the material actually earned, kept as two numbers on purpose —
+            the markup says whether the jug pays for itself, the fees say what
+            applying it is worth. Hidden until there is something to show. */}
+        {expStats.uplift !== 0 && (
+          <div className="stat-grid">
+            <StatTile label="Material margin" value={formatMoney(expStats.markup, cur)} />
+            <StatTile label="Service fees" value={formatMoney(expStats.fees, cur)} />
+          </div>
+        )}
         <p className="hint tiny">
           Net = income − overhead. Billable materials ({formatMoney(expStats.billable, cur)}) are
           treated as reimbursed by clients, so they don't reduce profit. Track costs in the Expenses tab.
-          {expStats.markup !== 0 && <> Income includes {formatMoney(expStats.markup, cur)} charged
-            over cost on measured materials.</>}
+          {expStats.uplift !== 0 && <> Income includes {formatMoney(expStats.uplift, cur)} charged
+            over cost on measured materials — {formatMoney(expStats.markup, cur)} of markup
+            and {formatMoney(expStats.fees, cur)} of service fees.</>}
         </p>
       </div>
 

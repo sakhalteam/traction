@@ -1,12 +1,12 @@
 /**
- * Smoke test for measured material ("track by quantity"):
- *   node scripts/smoke-measured.mjs   (needs the dev server up)
+ * Smoke test for measured material: node scripts/smoke-measured.mjs
+ * (needs the dev server up).
  *
- * Walks the Crossbow case end to end: log a quart on the shelf, draw 2 fl oz
- * for one client, invoice it under its customer-facing name, and check the cost
- * never leaks onto the invoice while the margin does reach Reports. Then turns
- * quantity tracking on for something already on the shelf and pours an unused
- * piece back into its container.
+ * Walks Nic's Crossbow case end to end — a quart on the shelf, 2 fl oz drawn
+ * for one client at a markup plus a service fee, invoiced under a name chosen
+ * at assign time — and checks that the cost never reaches the invoice while the
+ * margin and the fee both reach Reports. Then the no-fee path (sawzall blades,
+ * billed per unit), a legacy container, and pouring unused units back in.
  */
 import { chromium } from 'playwright-core'
 
@@ -37,11 +37,22 @@ const state = {
     { id: 'z1', clientId: null, label: 'Zinc bucket', amount: 150, category: 'Materials',
       date: iso(now - 5 * DAY), billable: true, invoiceId: null, settled: null,
       note: '', receiptPath: null, createdAt: now - 5 * DAY },
+    // Straight pass-through material: billed per unit, no fee.
+    { id: 'b1', clientId: null, label: 'Pruning blades 5pk', amount: 45, category: 'Materials',
+      date: iso(now - 4 * DAY), billable: true, invoiceId: null, settled: null,
+      note: '', receiptPath: null, createdAt: now - 4 * DAY,
+      measure: { unit: 'blade', holds: 5, qty: 5, clientLabel: 'Pruning blade', markupPct: 20, serviceFee: 0, usual: 1 } },
+    // A container priced the OLD way, before markup/fee existed. $10/fl oz on a
+    // jug costing $1.1403/fl oz must keep charging $10/fl oz after conversion.
+    { id: 'g1', clientId: null, label: 'Legacy jug', amount: 36.49, category: 'Materials',
+      date: iso(now - 7 * DAY), billable: true, invoiceId: null, settled: null,
+      note: '', receiptPath: null, createdAt: now - 7 * DAY,
+      measure: { unit: 'fl oz', holds: 32, qty: 32, clientLabel: 'Old treatment', unitPrice: 10, usual: 1 } },
     // A hand-mangled measure must hydrate into something countable, not NaN.
     { id: 'bad', clientId: null, label: 'Mangled', amount: 10, category: 'Materials',
       date: iso(now - 6 * DAY), billable: true, invoiceId: null, settled: null,
       note: '', receiptPath: null, createdAt: now - 6 * DAY,
-      measure: { unit: 'scoop', qty: 'lots', holds: null, unitPrice: 'x', clientLabel: 7 } },
+      measure: { unit: 'scoop', qty: 'lots', holds: null, markupPct: 'x', clientLabel: 7 } },
   ],
   invoices: [],
   settings: {
@@ -133,51 +144,63 @@ const dragOnto = async (from, to) => {
   await page.waitForTimeout(450)
 }
 
-
-// ---- 1. A mangled measure hydrates safely --------------------------------
+// ---- 1. Legacy + mangled containers hydrate safely -----------------------
 await page.locator('.tab', { hasText: 'Expenses' }).click()
 await page.waitForTimeout(500)
+let s = await readState()
+const legacy = s.expenses.find(x => x.id === 'g1')
+check('A legacy per-unit price converts to the markup that reproduces it',
+  Math.abs(legacy.measure.markupPct - 777) < 0.5 && legacy.measure.serviceFee === 0,
+  JSON.stringify(legacy.measure))
 const mangled = page.locator('.group-shelf li', { hasText: 'Mangled' })
 check('A mangled measure renders as a countable container',
   (await mangled.locator('.measure-tag').innerText()).includes('0 of 1 scoop left'),
   await mangled.locator('.measure-tag').innerText())
 
-// ---- 2. Log a quart of Crossbow, tracked by the fl oz ---------------------
+// ---- 2. Log a quart of Crossbow, tracked by the fl oz --------------------
 const form = page.locator('.panel', { hasText: 'Log an expense' })
 await form.locator('input[placeholder^="e.g. Mulch"]').fill('Crossbow 1qt')
-await form.locator('input[placeholder="0.00"]').fill('36.49')
+await form.locator('input[placeholder="0.00"]').first().fill('36.49')
 await form.locator('.check-field input').check()
 await form.locator('input[placeholder="fl oz"]').fill('fl oz')
 await form.locator('input[placeholder="32"]').fill('32')
 await form.locator('input[placeholder="e.g. Herbicide treatment"]').fill('Herbicide treatment')
 await page.waitForTimeout(200)
-const priceBox = form.locator('.measure-fields input[step="0.01"]')
-check('Price per unit starts at cost + 20%', (await priceBox.inputValue()) === '1.37', await priceBox.inputValue())
-check('The form shows cost per unit', (await form.locator('.measure-fields').innerText()).includes('$1.14 per fl oz'))
-await priceBox.fill('10')
+check('The container form shows cost per unit',
+  (await form.locator('.measure-fields').innerText()).includes('$1.14 per fl oz'))
+check('Markup defaults to 20% and is editable',
+  (await form.locator('.measure-fields input[step="1"]').last().inputValue()) === '20')
 await form.locator('button', { hasText: 'Log expense' }).click()
 await page.waitForTimeout(400)
 
-let s = await readState()
+s = await readState()
 let jug = s.expenses.find(x => x.label === 'Crossbow 1qt')
 check('The jug keeps what was PAID as its amount', jug?.amount === 36.49, String(jug?.amount))
-check('The jug is a full container on the shelf',
-  jug?.clientId === null && jug?.measure?.qty === 32 && jug?.measure?.holds === 32 && jug?.measure?.unitPrice === 10,
+check('The jug is a full container carrying default terms',
+  jug?.clientId === null && jug?.measure?.qty === 32 && jug?.measure?.markupPct === 20,
   JSON.stringify(jug?.measure))
 const jugRow = page.locator('.group-shelf li', { hasText: 'Crossbow' })
 check('The shelf row says how much is left',
   (await jugRow.locator('.measure-tag').innerText()).includes('32 of 32 fl oz left'))
-check('A measured row offers no money split', (await jugRow.locator('.icon-btn', { hasText: '½' }).count()) === 0)
+check('A measured row offers no money split', (await jugRow.locator('.icon-btn', { hasText: '.' }).count()) === 0)
 
-// ---- 3. Draw 2 fl oz for Patrick ------------------------------------------
+// ---- 3. Draw 2 fl oz for Patrick, priced for this job --------------------
 await jugRow.locator('.icon-btn[title="Assign to a client"]').click()
 await page.waitForTimeout(200)
-const qtyBox = jugRow.locator('.qty-field input')
+const assign = jugRow.locator('.measure-assign')
+const qtyBox = assign.locator('input[type="number"]').first()
 check('The amount box starts at the usual amount', (await qtyBox.inputValue()) === '1')
 await qtyBox.fill('40')
 check('More than is left cannot be drawn',
   await jugRow.locator('.settle-opts .chip', { hasText: 'Hale' }).isDisabled())
 await qtyBox.fill('2')
+// Markup and fee are chosen HERE, per job, not on the container.
+await assign.locator('input[step="1"]').last().fill('30')
+await assign.locator('input[step="0.01"]').fill('7.04')
+await page.waitForTimeout(200)
+const quote = await assign.locator('.measure-quote').innerText()
+check('The drawer quotes what the client pays and what it cost you',
+  quote.includes('$10.00') && quote.includes('$2.28'), quote.replace(/\s+/g, ' '))
 await jugRow.locator('.settle-opts .chip', { hasText: 'Hale' }).click()
 await page.waitForTimeout(400)
 
@@ -185,18 +208,32 @@ s = await readState()
 jug = s.expenses.find(x => x.label === 'Crossbow 1qt' && x.clientId === null)
 const dose = s.expenses.find(x => x.label === 'Crossbow 1qt' && x.clientId === 'c1')
 check('The container is left with 30 fl oz', jug?.measure?.qty === 30, JSON.stringify(jug?.measure))
-check("Patrick's piece holds 2 fl oz at the frozen price",
-  dose?.measure?.qty === 2 && dose?.measure?.unitPrice === 10, JSON.stringify(dose?.measure))
+check('The drawn piece freezes qty, markup and fee',
+  dose?.measure?.qty === 2 && dose?.measure?.markupPct === 30 && dose?.measure?.serviceFee === 7.04,
+  JSON.stringify(dose?.measure))
+check('The container keeps its own defaults, unchanged by the job',
+  jug?.measure?.markupPct === 20 && jug?.measure?.serviceFee === 0, JSON.stringify(jug?.measure))
 check('The cost splits to the cent',
   dose?.amount === 2.28 && jug?.amount === 34.21 && Math.round((dose.amount + jug.amount) * 100) === 3649,
-  `${dose?.amount} + ${jug?.amount}`)
-check('Container and piece share a lineage', !!dose?.lineageId && dose.lineageId === jug?.lineageId)
-check('Ready to bill counts what Patrick is charged, not the cost',
-  (await page.locator('.ar-tile', { hasText: 'Ready to bill' }).innerText()).includes('$20.00'))
-check('So does the ready-to-bill card header',
-  (await page.locator('.group-billable .group-head').innerText()).includes('$20.00'))
+  String(dose?.amount) + ' + ' + String(jug?.amount))
+check('Ready to bill counts what the client is charged, not the cost',
+  (await page.locator('.ar-tile', { hasText: 'Ready to bill' }).innerText()).includes('$10.00'))
 
-// ---- 4. Invoice it --------------------------------------------------------
+// ---- 4. The no-fee path: blades billed per unit --------------------------
+const bladeRow = page.locator('.group-shelf li', { hasText: 'Pruning blades' })
+await bladeRow.locator('.icon-btn[title="Assign to a client"]').click()
+await page.waitForTimeout(200)
+await bladeRow.locator('.measure-assign input[type="number"]').first().fill('2')
+await page.waitForTimeout(150)
+await bladeRow.locator('.settle-opts .chip', { hasText: 'Okonkwo' }).click()
+await page.waitForTimeout(400)
+s = await readState()
+const blades = s.expenses.find(x => x.label === 'Pruning blades 5pk' && x.clientId === 'c2')
+check('Blades cost $18 and carry no fee',
+  blades?.amount === 18 && blades?.measure?.serviceFee === 0,
+  JSON.stringify([blades?.amount, blades?.measure]))
+
+// ---- 5. Invoice Patrick --------------------------------------------------
 await page.locator('.tab', { hasText: 'Invoices' }).click()
 await page.waitForTimeout(500)
 await page.locator('.picker-trigger').first().click()
@@ -204,37 +241,42 @@ await page.waitForTimeout(300)
 await page.locator('.picker-row', { hasText: 'Patrick' }).click()
 await page.waitForTimeout(400)
 const cands = (await page.locator('.candidate-list').allInnerTexts()).join(' ')
-check('The builder offers it under its invoice name at the billed price',
-  cands.includes('Herbicide treatment') && cands.includes('× 2') && cands.includes('$20.00'), cands.replace(/\s+/g, ' ').slice(0, 160))
+check('The builder shows the invoice name, the count and the billed price',
+  cands.includes('Herbicide treatment') && cands.includes('2') && cands.includes('$10.00'),
+  cands.replace(/\s+/g, ' ').slice(0, 150))
 await page.locator('button', { hasText: 'Create invoice' }).click()
 await page.waitForTimeout(700)
 
 s = await readState()
-const inv = s.invoices[0]
-const line = inv?.expensesSnapshot?.[0]
-check('The invoice freezes name, count, price and total',
-  line?.label === 'Herbicide treatment' && line?.qty === 2 && line?.unitPrice === 10 && line?.amount === 20,
+const line = s.invoices[0]?.expensesSnapshot?.[0]
+check('A fee-bundled line freezes name and total, and NO per-unit price',
+  line?.label === 'Herbicide treatment' && line?.amount === 10
+  && line?.qty === undefined && line?.unitPrice === undefined && line?.measured === true,
   JSON.stringify(line))
 const sheet = await page.locator('.invoice-sheet').innerText()
-// The sheet uppercases through CSS, so match without caring about case. The
-// line reads in the table's own columns: name, count, per-unit price, total.
-check('The invoice prints × 2 @ $10.00 = $20.00',
-  /herbicide treatment\n× 2\n\$10\.00\n\$20\.00/i.test(sheet), sheet.slice(0, 120))
+check('The invoice prints one named line at $10.00',
+  /herbicide treatment\s*\n\s*\$10\.00/i.test(sheet), sheet.replace(/\n/g, ' | ').slice(0, 140))
+check('The bundled line never reveals the per-unit breakdown', !sheet.includes('× 2'))
 check('What you paid never reaches the invoice',
   !/crossbow/i.test(sheet) && !sheet.includes('2.28') && !sheet.includes('36.49'))
-check('Measured lines are not free-typed on the draft',
-  (await page.locator('.invoice-expenses .expense-row.measured').count()) === 1)
+check('You can still see the quantity in your own records',
+  (await readState()).expenses.find(x => x.id === line.id)?.measure?.qty === 2)
 
-// ---- 5. Reports counts the margin -----------------------------------------
+// ---- 6. Reports splits margin from fees ----------------------------------
 await page.locator('.tab', { hasText: 'More' }).click()
 await page.waitForTimeout(300)
 await page.locator('.more-row', { hasText: 'Reports' }).click()
 await page.waitForTimeout(600)
 const profit = await page.locator('.panel', { hasText: 'Net profit' }).innerText()
-check('Reports counts the $17.72 charged over cost as income',
-  profit.includes('$17.72') && profit.includes('$77.72'), profit.replace(/\s+/g, ' ').slice(0, 200))
+// Margin is 30% of the $2.28 dose (68c) plus 20% of the $18 of blades ($3.60).
+// Both are assigned but not yet invoiced, which is the same moment "ready to
+// bill" starts counting them — earned is earned.
+check('Reports shows material margin and service fees separately',
+  profit.includes('$4.28') && profit.includes('$7.04'), profit.replace(/\s+/g, ' ').slice(0, 220))
+check('Income adds both on top of labour', profit.includes('$71.32'),
+  profit.replace(/\s+/g, ' ').slice(0, 220))
 
-// ---- 6. Turn quantity tracking on for something already on the shelf -----
+// ---- 7. Turn quantity tracking on for something already on the shelf ----
 await page.locator('.tab', { hasText: 'Expenses' }).click()
 await page.waitForTimeout(500)
 const zinc = page.locator('.group-shelf li', { hasText: 'Zinc bucket' })
@@ -249,10 +291,9 @@ await page.waitForTimeout(200)
 await ed.locator('button', { hasText: 'Save' }).click()
 await page.waitForTimeout(400)
 s = await readState()
-let bucket = s.expenses.find(x => x.id === 'z1')
 check('An existing shelf item can switch to quantity tracking',
-  bucket?.measure?.qty === 5 && bucket?.measure?.holds === 5 && bucket?.measure?.unitPrice === 36,
-  JSON.stringify(bucket?.measure))
+  s.expenses.find(x => x.id === 'z1')?.measure?.qty === 5,
+  JSON.stringify(s.expenses.find(x => x.id === 'z1')?.measure))
 
 // Draw one roof for the Okonkwos by dragging it off the shelf.
 await page.setViewportSize({ width: 1180, height: 900 })
@@ -261,8 +302,8 @@ await dragOnto(
   page.locator('.group-shelf li', { hasText: 'Zinc bucket' }).first(),
   page.locator('.group-billable .group-head'),
 )
-check('Dragging a container off the shelf asks how much',
-  (await page.locator('.drop-dialog .qty-field').count()) === 1)
+check('Dragging a container off the shelf asks how much, and at what price',
+  (await page.locator('.drop-dialog .measure-assign').count()) === 1)
 await page.locator('.drop-dialog .chip', { hasText: 'Okonkwo' }).click()
 await page.waitForTimeout(400)
 s = await readState()
@@ -293,5 +334,5 @@ check('No console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 
 await browser.close()
 const failed = results.filter(r => !r.ok)
-console.log(`\n${results.length - failed.length}/${results.length} passed`)
+console.log('\n' + (results.length - failed.length) + '/' + results.length + ' passed')
 process.exit(failed.length ? 1 : 0)

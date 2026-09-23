@@ -213,17 +213,24 @@ another way, sit on the shelf, or be plain overhead:
   what happened.
 - **Track by quantity.** For material you use a bit at a time — a quart of Crossbow, a
   bucket of zinc — tick **Track by quantity** when you log it (or later, with ✎ on
-  anything on the shelf). Give the unit (*fl oz*), what it holds (*32*), the **name on
-  invoice** (*Herbicide treatment*) and a **price per unit**, which starts at cost + 20%
-  for you to change. The amount is what you **paid** — never the marked-up figure, or
-  Reports shows you spending money you didn't.
-- **Draw some off for a job.** ◎, or dragging the container onto *Ready to bill*, asks
-  how many went on the job and whose job it was. That many comes out of the container
-  (*30 of 32 fl oz left*) and the invoice reads *HERBICIDE TREATMENT × 2 @ $10.00 —
-  $20.00*: no brand, no cost. The price is frozen onto the piece when you draw it, the
-  way an hourly rate is, so repricing the jug later never changes a job already done.
-  What you charge over cost counts as income in Reports. Didn't use it after all? Drag it
-  back to the shelf and onto its container to pour it back in.
+  anything on the shelf). Give the unit (*fl oz*), what it holds (*32*), and your usual
+  name, markup and fee. Those are **defaults only**. The amount is what you **paid** —
+  never a marked-up figure, or Reports shows you spending money you didn't.
+- **Price it per job, when you assign it.** ◎, or dragging the container onto *Ready to
+  bill*, asks how much went out, what to call it on the invoice, and the **markup %** and
+  **service fee** for this job. Every one of those is typed, not computed — a big lawn
+  belonging to someone you want to go easy on gets a regular-sized fee, on purpose. A
+  line underneath quotes what they'll pay and what it cost you. Those numbers freeze onto
+  the piece, the way an hourly rate freezes onto an entry, so repricing the jug next
+  month never changes a job already done.
+- **One line for them, the full count for you.** With a fee the invoice reads
+  *HERBICIDE TREATMENT — $10.00*, because dividing a bundled price back out would quote a
+  per-unit rate you never set. With no fee it reads *PRUNING BLADE × 2 @ $10.80 —
+  $21.60*, which is how pass-through material should look. Either way the shelf still
+  says *30 of 32 fl oz left* and the row still shows the count, so past jobs answer "how
+  much does a yard that size take?". Markup and service fees are counted separately as
+  income in Reports. Didn't use it after all? Drag it back to the shelf and onto its
+  container to pour it back in.
 - **Receipts are shared by every piece.** Cutting an expense up leaves all the pieces
   pointing at the same photo, tagged *part of a shared receipt*. Deleting one piece
   leaves the photo alone — it is only removed once the last piece using it is gone. A

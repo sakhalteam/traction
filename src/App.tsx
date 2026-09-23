@@ -7,6 +7,7 @@ import {
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
   addDays, nextInvoiceNumber, dateFromEpoch, splitExpense, splitExpenseEqually,
   recombineExpenses, receiptRefCount, drawMeasured, expenseLine,
+  type MeasurePricing,
 } from './store'
 import type { RemoteState } from './store'
 import type {
@@ -394,11 +395,13 @@ export default function App() {
    * Draw some units of a measured container off the shelf for a client — see
    * drawMeasured. The container keeps whatever is left.
    */
-  const drawMeasuredAction = useCallback((id: string, clientId: string, qty: number) => {
+  const drawMeasuredAction = useCallback((
+    id: string, clientId: string, qty: number, pricing: MeasurePricing,
+  ) => {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
       if (!existing) return s
-      const rows = drawMeasured(existing, qty, clientId)
+      const rows = drawMeasured(existing, qty, clientId, pricing)
       if (!rows) return s
       return { ...s, expenses: s.expenses.flatMap(x => x.id === id ? rows : [x]) }
     })

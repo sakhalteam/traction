@@ -539,8 +539,31 @@ export function recombineExpenses(
 
 // ---- Measured material ---------------------------------------------------
 
-/** The markup a new measured container's per-unit price is suggested at. */
+/** What a new measured container's markup box starts at. Always editable. */
 export const DEFAULT_MARKUP_PCT = 20
+
+/**
+ * What a client is charged for `cost` worth of material.
+ *
+ * Markup is a percentage of what you paid; the fee is flat and lands once per
+ * job. Both are suggestions the moment they reach a screen — see `Measure`.
+ */
+export function priceUnits(cost: number, markupPct: number, serviceFee: number): number {
+  const marked = cost * (1 + (markupPct || 0) / 100)
+  return Math.round((marked + (serviceFee || 0)) * 100) / 100
+}
+
+/**
+ * What `qty` units drawn from this container would cost YOU.
+ *
+ * Matches `drawMeasured`'s split exactly, so the figure quoted in the assign
+ * drawer is the figure the piece is created with.
+ */
+export function drawCost(x: Pick<Expense, 'amount' | 'measure'>, qty: number): number {
+  const have = x.measure?.qty ?? 0
+  if (have <= 0) return 0
+  return Math.round(toCents(x.amount) * Math.min(qty, have) / have) / 100
+}
 
 const toCents = (n: number) => Math.round(n * 100)
 
@@ -548,15 +571,6 @@ const toCents = (n: number) => Math.round(n * 100)
 export function costPerUnit(x: Pick<Expense, 'amount' | 'measure'>): number {
   const qty = x.measure?.qty ?? 0
   return qty > 0 ? x.amount / qty : 0
-}
-
-/**
- * Where the per-unit price box starts: cost per unit plus the default markup,
- * rounded UP to the cent so the suggestion never lands under cost + markup.
- */
-export function suggestUnitPrice(amount: number, qty: number, markupPct = DEFAULT_MARKUP_PCT): number {
-  if (!(qty > 0) || !(amount > 0)) return 0
-  return Math.ceil((amount / qty) * (1 + markupPct / 100) * 100) / 100
 }
 
 /**
@@ -569,7 +583,7 @@ export function suggestUnitPrice(amount: number, qty: number, markupPct = DEFAUL
  */
 export function billedAmount(x: Pick<Expense, 'amount' | 'measure'>): number {
   if (!x.measure) return x.amount
-  return toCents(x.measure.qty * x.measure.unitPrice) / 100
+  return priceUnits(x.amount, x.measure.markupPct, x.measure.serviceFee)
 }
 
 /**
@@ -582,15 +596,41 @@ export function billedAmount(x: Pick<Expense, 'amount' | 'measure'>): number {
  */
 export function expenseLine(x: Expense): ExpenseLine {
   if (x.measure) {
-    return {
+    const amount = billedAmount(x)
+    const line: ExpenseLine = {
       id: x.id,
       label: x.measure.clientLabel.trim() || x.label || 'Charge',
-      amount: billedAmount(x),
-      qty: x.measure.qty,
-      unitPrice: x.measure.unitPrice,
+      amount,
+      measured: true,
     }
+    // A fee is bundled into the total, so there is no honest per-unit price to
+    // print — dividing it back out would quote a rate you never set. Straight
+    // pass-through material (two sawzall blades) still shows its count and
+    // price, which is the whole point of billing it that way.
+    if (!x.measure.serviceFee && x.measure.qty > 0) {
+      line.qty = x.measure.qty
+      line.unitPrice = Math.round((amount / x.measure.qty) * 100) / 100
+    }
+    return line
   }
   return { id: x.id, label: x.label || 'Charge', amount: x.amount || 0, note: x.note }
+}
+
+/** What a client is charged for one assignment, chosen as it is made. */
+export interface MeasurePricing {
+  clientLabel: string
+  markupPct: number
+  serviceFee: number
+}
+
+/**
+ * True for an invoice line that came off a measured container.
+ *
+ * A fee-bundled line carries no `qty`, so the presence of one cannot be the
+ * test — this asks the invoice's own record instead of guessing from shape.
+ */
+export function isMeasuredLine(line: ExpenseLine): boolean {
+  return line.qty != null || line.measured === true
 }
 
 /**
@@ -604,12 +644,25 @@ export function expenseLine(x: Expense): ExpenseLine {
  * Both rows share a lineage, so a piece taken back off a client can be dropped
  * onto the container to pour the unused units back in.
  */
-export function drawMeasured(x: Expense, qty: number, clientId: string): Expense[] | null {
+export function drawMeasured(
+  x: Expense, qty: number, clientId: string, pricing: MeasurePricing,
+): Expense[] | null {
   if (!x.measure || x.invoiceId || x.settled || isAbsorbed(x)) return null
   const have = x.measure.qty
   const take = Math.floor(qty)
   if (!(take >= 1) || take > have) return null
-  if (take === have) return [{ ...x, clientId }]
+
+  // What this client is charged, frozen now. The container keeps its own values
+  // as the defaults for next time.
+  const priced = {
+    clientLabel: pricing.clientLabel.trim(),
+    markupPct: Math.max(0, pricing.markupPct || 0),
+    serviceFee: Math.max(0, Math.round((pricing.serviceFee || 0) * 100) / 100),
+  }
+
+  // The whole container went out: there is no remainder to leave behind, so the
+  // row itself becomes the piece rather than leaving an empty jug on the shelf.
+  if (take === have) return [{ ...x, clientId, measure: { ...x.measure, ...priced } }]
 
   const pieceCents = Math.round(toCents(x.amount) * take / have)
   const lineageId = x.lineageId ?? genId()
@@ -626,7 +679,7 @@ export function drawMeasured(x: Expense, qty: number, clientId: string): Expense
       lineageId,
       clientId,
       amount: pieceCents / 100,
-      measure: { ...x.measure, qty: take },
+      measure: { ...x.measure, ...priced, qty: take },
       invoiceId: null,
       settled: null,
       absorbedInto: null,
@@ -1129,17 +1182,28 @@ export function agingOf(invoice: Pick<Invoice, 'dueDate'>, today: string): {
  * A measure is only real when it can be counted: a hand-edited blob with a
  * string where a number belongs would otherwise put NaN on an invoice.
  */
-function hydrateMeasure(m: unknown): Measure | null {
+function hydrateMeasure(m: unknown, amount: number): Measure | null {
   if (!m || typeof m !== 'object') return null
   const r = m as Partial<Measure>
   const num = (v: unknown, fallback: number) => typeof v === 'number' && Number.isFinite(v) ? v : fallback
   const qty = Math.max(0, Math.floor(num(r.qty, 0)))
+
+  // A container set up before markup/fee priced its units flat. Convert that
+  // price into the markup that produces it, so an existing jug keeps charging
+  // what it charged yesterday instead of silently dropping to cost.
+  const legacyPrice = num(r.unitPrice, 0)
+  const costPerUnit = qty > 0 ? amount / qty : 0
+  const converted = legacyPrice > 0 && costPerUnit > 0
+    ? Math.max(0, Math.round(((legacyPrice / costPerUnit) - 1) * 1000) / 10)
+    : 0
+
   return {
     unit: typeof r.unit === 'string' ? r.unit : '',
     holds: Math.max(1, Math.floor(num(r.holds, qty || 1))),
     qty,
     clientLabel: typeof r.clientLabel === 'string' ? r.clientLabel : '',
-    unitPrice: Math.max(0, num(r.unitPrice, 0)),
+    markupPct: Math.max(0, num(r.markupPct, converted)),
+    serviceFee: Math.max(0, num(r.serviceFee, 0)),
     usual: Math.max(1, Math.floor(num(r.usual, 1))),
   }
 }
@@ -1181,7 +1245,7 @@ export function hydrateState(raw: unknown): TractionState {
     absorbedInto: typeof x.absorbedInto === 'string' ? x.absorbedInto : null,
     ...(typeof x.absorbedAmount === 'number' ? { absorbedAmount: x.absorbedAmount } : {}),
     // Absent on everything logged before measured material existed.
-    measure: hydrateMeasure(x.measure),
+    measure: hydrateMeasure(x.measure, typeof x.amount === 'number' ? x.amount : 0),
   }))
   const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
     // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.
