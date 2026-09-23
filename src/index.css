@@ -1050,6 +1050,20 @@ textarea { resize: vertical; }
 .measure-fields .field-row { margin-top: 8px; }
 .check-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
 .check-field input { width: auto; margin: 0; }
+/* A comp reads as a credit, not another charge, so it leans on the printed
+   sheet's quieter type rather than shouting in red. */
+.invoice-sheet tr.adjustment td { font-style: italic; }
+.adjustment-line { flex: 1; display: flex; align-items: center; gap: 8px; }
+.expense-badge.comp { background: rgba(245, 158, 11, 0.16); color: var(--amber); }
+.expense-badge.trade { background: rgba(56, 189, 248, 0.14); color: var(--sky); }
+.adjustment-kinds { align-items: center; gap: 6px; margin-top: 4px; }
+
+/* Undo/redo, next to the sync indicator: both are the app telling you where
+   your work currently stands. */
+.history-btns { display: inline-flex; gap: 2px; margin-right: 4px; }
+.history-btns .icon-btn { font-size: 1.05rem; line-height: 1; }
+.history-btns .icon-btn:disabled { opacity: 0.32; cursor: default; }
+
 .measure-assign { margin: 6px 0 10px; }
 .measure-assign .field-row { margin-bottom: 6px; }
 /* The readout under the pricing fields. Reads as a sentence, not a total row —

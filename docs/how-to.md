@@ -231,6 +231,21 @@ another way, sit on the shelf, or be plain overhead:
   much does a yard that size take?". Markup and service fees are counted separately as
   income in Reports. Didn't use it after all? Drag it back to the shelf and onto its
   container to pour it back in.
+- **Markup and a service fee, on anything billable.** Every billable expense carries a
+  **name on invoice**, a **markup %** and a **service fee**, all set again when you put it
+  on a job. Enter `0` markup for the ones you pass through at cost. The `amount` is always
+  what you **paid**; the marked-up figure is what reaches the invoice, and Reports counts
+  the difference as income rather than as spending.
+- **Undo and redo.** ↶ / ↷ appear in the header as soon as you change something (Ctrl+Z,
+  Ctrl+Y). **This device and this session only** — reload and the history is gone, and
+  nothing done on your phone can be undone on the PC. Deleting an expense or an entry now
+  keeps its photos in storage so undo can restore the whole thing; **Settings → Stored
+  photos** sweeps what nothing points at any more.
+- **Comp, discount or trade money off an invoice.** On a draft, below the charges: type a
+  label, an amount, and pick **Comp** (money given away) or **Trade** (money swapped for
+  something you got back). The full breakdown of hours and materials still prints, with the
+  credit under your own wording. Reports keeps comps and trades apart, because $200 of
+  weight plates leaves you square and $50 of goodwill does not.
 - **Receipts are shared by every piece.** Cutting an expense up leaves all the pieces
   pointing at the same photo, tagged *part of a shared receipt*. Deleting one piece
   leaves the photo alone — it is only removed once the last piece using it is gone. A

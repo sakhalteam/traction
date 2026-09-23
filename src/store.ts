@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
+  AdjustmentKind,
   Breakdown,
   BreakdownDay,
   BreakdownLine,
@@ -218,6 +219,19 @@ export function isFlat(e: Pick<TimeEntry, 'flatAmount'>): boolean {
   return e.flatAmount != null
 }
 
+/** What has been taken off this invoice: comps, discounts, trades. */
+export function adjustmentsTotal(invoice: Pick<Invoice, 'adjustments'>): number {
+  return Math.round((invoice.adjustments ?? []).reduce((s, a) => s + (a.amount || 0), 0) * 100) / 100
+}
+
+export const ADJUSTMENT_LABELS: Record<AdjustmentKind, string> = {
+  comp: 'Comp / discount',
+  trade: 'Trade',
+}
+
+/** Commonest first; a goodwill knock-off happens more often than a swap. */
+export const ADJUSTMENT_OPTIONS: AdjustmentKind[] = ['comp', 'trade']
+
 /** Sum of an invoice's frozen expense lines. */
 export function expensesTotal(invoice: Pick<Invoice, 'expensesSnapshot'>): number {
   return Math.round((invoice.expensesSnapshot ?? []).reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100
@@ -228,14 +242,18 @@ export function expensesTotal(invoice: Pick<Invoice, 'expensesSnapshot'>): numbe
  * present (immutable record); falls back to live entries for legacy invoices.
  */
 export function invoiceTotal(
-  invoice: Pick<Invoice, 'snapshot' | 'expensesSnapshot' | 'entryIds'>,
+  invoice: Pick<Invoice, 'snapshot' | 'expensesSnapshot' | 'entryIds' | 'adjustments'>,
   entries: TimeEntry[],
 ): number {
   const labor = invoice.snapshot
     ? invoice.snapshot.total
     : entries.filter(e => invoice.entryIds.includes(e.id))
         .reduce((s, e) => s + entryAmount(e), 0)
-  return Math.round((labor + expensesTotal(invoice)) * 100) / 100
+  // Comps come off last, and the total is floored at zero: an invoice asking a
+  // client for minus forty dollars is not a bill, it is a question. Over-comping
+  // is a credit to carry to the next one.
+  const gross = labor + expensesTotal(invoice)
+  return Math.max(0, Math.round((gross - adjustmentsTotal(invoice)) * 100) / 100)
 }
 
 // ---- Invoice breakdown ---------------------------------------------------
@@ -581,9 +599,13 @@ export function costPerUnit(x: Pick<Expense, 'amount' | 'measure'>): number {
  * is NOT the amount: the amount is what you paid, and Reports needs that
  * number to stay true.
  */
-export function billedAmount(x: Pick<Expense, 'amount' | 'measure'>): number {
-  if (!x.measure) return x.amount
-  return priceUnits(x.amount, x.measure.markupPct, x.measure.serviceFee)
+export function billedAmount(x: Pick<Expense, 'amount' | 'markupPct' | 'serviceFee'>): number {
+  return priceUnits(x.amount, x.markupPct ?? 0, x.serviceFee ?? 0)
+}
+
+/** True when this is billed at more than it cost — marked up, fee'd, or both. */
+export function isPriced(x: Pick<Expense, 'markupPct' | 'serviceFee'>): boolean {
+  return !!x.markupPct || !!x.serviceFee
 }
 
 /**
@@ -595,25 +617,29 @@ export function billedAmount(x: Pick<Expense, 'amount' | 'measure'>): number {
  * reading what you paid for the jug.
  */
 export function expenseLine(x: Expense): ExpenseLine {
+  const amount = billedAmount(x)
+  const line: ExpenseLine = {
+    id: x.id,
+    label: (x.clientLabel ?? '').trim() || x.label || 'Charge',
+    amount,
+  }
   if (x.measure) {
-    const amount = billedAmount(x)
-    const line: ExpenseLine = {
-      id: x.id,
-      label: x.measure.clientLabel.trim() || x.label || 'Charge',
-      amount,
-      measured: true,
-    }
+    line.measured = true
     // A fee is bundled into the total, so there is no honest per-unit price to
     // print — dividing it back out would quote a rate you never set. Straight
     // pass-through material (two sawzall blades) still shows its count and
     // price, which is the whole point of billing it that way.
-    if (!x.measure.serviceFee && x.measure.qty > 0) {
+    if (!x.serviceFee && x.measure.qty > 0) {
       line.qty = x.measure.qty
       line.unitPrice = Math.round((amount / x.measure.qty) * 100) / 100
     }
     return line
   }
-  return { id: x.id, label: x.label || 'Charge', amount: x.amount || 0, note: x.note }
+  // Split notes quote what you PAID ("$38.52 of $77.04 total"). Printing one
+  // beside a marked-up figure both contradicts it and hands over your cost, so
+  // a priced line travels under its name alone.
+  if (!isPriced(x) && x.note) line.note = x.note
+  return line
 }
 
 /** What a client is charged for one assignment, chosen as it is made. */
@@ -621,6 +647,15 @@ export interface MeasurePricing {
   clientLabel: string
   markupPct: number
   serviceFee: number
+}
+
+/** Tidy a typed-in set of terms into what gets stored. */
+export function cleanPricing(p: MeasurePricing): MeasurePricing {
+  return {
+    clientLabel: p.clientLabel.trim(),
+    markupPct: Math.max(0, Math.round((p.markupPct || 0) * 10) / 10),
+    serviceFee: Math.max(0, Math.round((p.serviceFee || 0) * 100) / 100),
+  }
 }
 
 /**
@@ -654,15 +689,11 @@ export function drawMeasured(
 
   // What this client is charged, frozen now. The container keeps its own values
   // as the defaults for next time.
-  const priced = {
-    clientLabel: pricing.clientLabel.trim(),
-    markupPct: Math.max(0, pricing.markupPct || 0),
-    serviceFee: Math.max(0, Math.round((pricing.serviceFee || 0) * 100) / 100),
-  }
+  const priced = cleanPricing(pricing)
 
   // The whole container went out: there is no remainder to leave behind, so the
   // row itself becomes the piece rather than leaving an empty jug on the shelf.
-  if (take === have) return [{ ...x, clientId, measure: { ...x.measure, ...priced } }]
+  if (take === have) return [{ ...x, ...priced, clientId }]
 
   const pieceCents = Math.round(toCents(x.amount) * take / have)
   const lineageId = x.lineageId ?? genId()
@@ -675,11 +706,12 @@ export function drawMeasured(
     },
     {
       ...x,
+      ...priced,
       id: genId(),
       lineageId,
       clientId,
       amount: pieceCents / 100,
-      measure: { ...x.measure, ...priced, qty: take },
+      measure: { ...x.measure, qty: take },
       invoiceId: null,
       settled: null,
       absorbedInto: null,
@@ -1182,30 +1214,51 @@ export function agingOf(invoice: Pick<Invoice, 'dueDate'>, today: string): {
  * A measure is only real when it can be counted: a hand-edited blob with a
  * string where a number belongs would otherwise put NaN on an invoice.
  */
-function hydrateMeasure(m: unknown, amount: number): Measure | null {
+const finite = (v: unknown, fallback: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? v : fallback
+
+function hydrateMeasure(m: unknown): Measure | null {
   if (!m || typeof m !== 'object') return null
   const r = m as Partial<Measure>
-  const num = (v: unknown, fallback: number) => typeof v === 'number' && Number.isFinite(v) ? v : fallback
-  const qty = Math.max(0, Math.floor(num(r.qty, 0)))
-
-  // A container set up before markup/fee priced its units flat. Convert that
-  // price into the markup that produces it, so an existing jug keeps charging
-  // what it charged yesterday instead of silently dropping to cost.
-  const legacyPrice = num(r.unitPrice, 0)
-  const costPerUnit = qty > 0 ? amount / qty : 0
-  const converted = legacyPrice > 0 && costPerUnit > 0
-    ? Math.max(0, Math.round(((legacyPrice / costPerUnit) - 1) * 1000) / 10)
-    : 0
-
+  const qty = Math.max(0, Math.floor(finite(r.qty, 0)))
   return {
     unit: typeof r.unit === 'string' ? r.unit : '',
-    holds: Math.max(1, Math.floor(num(r.holds, qty || 1))),
+    holds: Math.max(1, Math.floor(finite(r.holds, qty || 1))),
     qty,
-    clientLabel: typeof r.clientLabel === 'string' ? r.clientLabel : '',
-    markupPct: Math.max(0, num(r.markupPct, converted)),
-    serviceFee: Math.max(0, num(r.serviceFee, 0)),
-    usual: Math.max(1, Math.floor(num(r.usual, 1))),
+    usual: Math.max(1, Math.floor(finite(r.usual, 1))),
   }
+}
+
+/**
+ * Lift pricing onto the expense, wherever this blob happens to keep it.
+ *
+ * Three eras: a flat per-unit price on the container, then a markup and fee on
+ * the container, now both on the expense itself so a one-off purchase can be
+ * marked up too. A jug priced at $10/fl oz that cost $1.14/fl oz becomes a 777%
+ * markup and keeps charging exactly what it always did.
+ */
+function hydratePricing(x: Partial<Expense>, measure: Measure | null): MeasurePricing {
+  const legacy = (x.measure ?? {}) as Partial<Measure>
+  const amount = finite(x.amount, 0)
+  const qty = measure?.qty ?? 0
+  const costPerUnit = qty > 0 ? amount / qty : 0
+  const flatPrice = finite(legacy.unitPrice, 0)
+  const converted = flatPrice > 0 && costPerUnit > 0
+    ? Math.max(0, Math.round(((flatPrice / costPerUnit) - 1) * 1000) / 10)
+    : 0
+  const label = typeof x.clientLabel === 'string' ? x.clientLabel
+    : typeof legacy.clientLabel === 'string' ? legacy.clientLabel
+    : ''
+  return {
+    clientLabel: label,
+    markupPct: Math.max(0, finite(x.markupPct, finite(legacy.markupPct, converted))),
+    serviceFee: Math.max(0, finite(x.serviceFee, finite(legacy.serviceFee, 0))),
+  }
+}
+
+/** Memoised per row so hydrate doesn't rebuild the same measure twice. */
+function measureOf(x: Partial<Expense>): Measure | null {
+  return hydrateMeasure(x.measure)
 }
 
 /** Fill any missing fields so older/partial saved blobs hydrate safely. */
@@ -1245,7 +1298,8 @@ export function hydrateState(raw: unknown): TractionState {
     absorbedInto: typeof x.absorbedInto === 'string' ? x.absorbedInto : null,
     ...(typeof x.absorbedAmount === 'number' ? { absorbedAmount: x.absorbedAmount } : {}),
     // Absent on everything logged before measured material existed.
-    measure: hydrateMeasure(x.measure, typeof x.amount === 'number' ? x.amount : 0),
+    measure: measureOf(x),
+    ...hydratePricing(x, measureOf(x)),
   }))
   const invoices = (Array.isArray(r.invoices) ? r.invoices : []).map((i): Invoice => {
     // Migrate legacy inline `expenses: {id,label,amount}[]` → frozen snapshot.
@@ -1258,6 +1312,7 @@ export function hydrateState(raw: unknown): TractionState {
       expensesSnapshot: Array.isArray(i.expensesSnapshot) ? i.expensesSnapshot
         : Array.isArray(legacy) ? legacy.map(x => ({ id: x.id, label: x.label, amount: x.amount }))
         : [],
+      adjustments: Array.isArray(i.adjustments) ? i.adjustments : [],
       paidDate: i.paidDate ?? null,
       // Legacy invoices have no due date — never retroactively mark them late.
       dueDate: i.dueDate ?? null,

@@ -230,6 +230,28 @@ export interface Expense {
    * and the gap between the two is your margin. Absent on everything else.
    */
   measure?: Measure | null
+  /**
+   * What the client sees on their invoice, when that differs from what you
+   * call it. Blank falls back to `label`.
+   *
+   * Lives on the expense rather than on `measure` because a one-off purchase
+   * deserves the same courtesy as a jug: they are buying a repair, not a trip
+   * to the hardware shop.
+   */
+  clientLabel?: string
+  /**
+   * Percentage added to `amount` when this is billed on. Absent or 0 bills at
+   * cost, which is what every expense logged before markup existed does.
+   *
+   * `amount` always stays what you PAID — Reports is built on that, and a
+   * marked-up amount would quietly inflate what the business appears to spend.
+   */
+  markupPct?: number
+  /**
+   * A flat amount added once, on top of the marked-up material. Per job, and
+   * always typed rather than derived — see `Measure.serviceFee`.
+   */
+  serviceFee?: number
   createdAt: number
 }
 
@@ -250,44 +272,18 @@ export interface Measure {
    * piece drawn off it, what went to that client. Whole numbers only.
    */
   qty: number
-  /**
-   * The name the client sees on their invoice. Blank falls back to the label.
-   *
-   * A default on the container, chosen again per assignment — the same jug can
-   * go out as "Herbicide treatment" for one client and whatever suits the next.
-   */
-  clientLabel: string
-  /**
-   * Percentage added to what these units cost you.
-   *
-   * A default on the container, FROZEN onto each piece when it is drawn off —
-   * like an hourly rate onto a time entry — so repricing the jug never quietly
-   * changes a job already done.
-   *
-   * Kept as a percentage rather than folded into a finished price because the
-   * next jug will cost something different, and a percentage still means what
-   * it meant. It is also a number worth being able to look back at: what you
-   * charged over cost, job by job, is half the reason to record it at all.
-   */
-  markupPct: number
-  /**
-   * A flat amount added once per job, on top of the marked-up material.
-   *
-   * Per JOB, never per unit. Three fl oz on a big lawn belonging to someone you
-   * want to go easy on is still one application, and this is the number you
-   * reach for to say so — which is why it is always typed and never derived. A
-   * formula you cannot overrule would price that job correctly and lose the
-   * reason you did it.
-   */
-  serviceFee: number
   /** The amount usually used on one job — where the assign box starts. */
   usual: number
   /**
-   * LEGACY. Containers set up before markup/fee carried one flat per-unit
-   * price. `hydrateMeasure` converts it to the equivalent markup and nothing
-   * reads it afterwards; kept on the type so an old blob still loads.
+   * LEGACY, both of them. Pricing used to live here: first as one flat
+   * per-unit price, then briefly as a markup and fee on the container itself.
+   * `hydrateState` lifts whichever it finds up onto the expense, where a
+   * one-off purchase can use it too, and nothing reads these afterwards.
    */
   unitPrice?: number
+  markupPct?: number
+  serviceFee?: number
+  clientLabel?: string
 }
 
 /**
@@ -326,6 +322,32 @@ export interface ExpenseLine {
   measured?: boolean
 }
 
+/**
+ * Why money came off an invoice.
+ *
+ * Two, not five, and the split is the one that changes what the year looks
+ * like: `comp` is money you gave away, `trade` is money you swapped for
+ * something you now own. Adding them together would say you are down $250 when
+ * you are down $50 and holding a set of weight plates.
+ */
+export type AdjustmentKind = 'comp' | 'trade'
+
+/**
+ * A credit applied to one invoice: a comp, a discount, a trade.
+ *
+ * Frozen onto the invoice like every other line, and deliberately NOT an
+ * Expense with a negative amount — an expense is money the business spent, and
+ * filing a goodwill discount there would corrupt what Reports says you paid out.
+ */
+export interface Adjustment {
+  id: string
+  /** Whatever you want it called, printed as-is: "Trade — weight plates". */
+  label: string
+  /** Always positive; it is subtracted when the invoice is totalled. */
+  amount: number
+  kind: AdjustmentKind
+}
+
 export interface Invoice {
   id: string
   clientId: string
@@ -353,6 +375,11 @@ export interface Invoice {
   expenseIds: string[]
   /** Frozen expense lines at creation — the immutable materials record. */
   expensesSnapshot: ExpenseLine[]
+  /**
+   * Comps, discounts and trades taken off this invoice. Absent on invoices
+   * issued before they existed, which is why every reader defaults it to [].
+   */
+  adjustments?: Adjustment[]
   status: InvoiceStatus
   /** Set to today's date when first marked paid; cleared if un-paid. */
   paidDate: string | null

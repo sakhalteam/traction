@@ -6,15 +6,15 @@ import {
   getLocalUpdatedAt, isNewer, mergeStates, isDirty, setDirty, toggleFavorite,
   makeClient, makeService, makeEntry, makeExpense, todayISO, buildBreakdown, formatClock, liveSeconds,
   addDays, nextInvoiceNumber, dateFromEpoch, splitExpense, splitExpenseEqually,
-  recombineExpenses, receiptRefCount, drawMeasured, expenseLine,
+  recombineExpenses, drawMeasured, expenseLine, cleanPricing,
   type MeasurePricing,
 } from './store'
 import type { RemoteState } from './store'
 import type {
-  Client, DurationStyle, Expense, Invoice, InvoiceStatus, Service, Settings, SettledHow,
+  AdjustmentKind, Client, DurationStyle, Expense, Invoice, InvoiceStatus, Service, Settings, SettledHow,
   TimeEntry, TractionState,
 } from './types'
-import { deleteReceipt, uploadJobPhoto } from './receipts'
+import { uploadJobPhoto } from './receipts'
 import { useNow } from './useNow'
 import { Chrome, type CloudStatus, type View } from './Chrome'
 import { TimerBar } from './TimerBar'
@@ -39,6 +39,15 @@ function viewFromHash(): View | null {
 const RUNAWAY_SECONDS = 8 * 3600
 
 const REMOTE_SAVE_DELAY = 4000
+
+/**
+ * How many steps back the arrows reach.
+ *
+ * Deep enough to walk out of a mess made in one sitting, shallow enough that
+ * the snapshots stay small — each one is a whole copy of the document, and the
+ * point of this stack is the last few minutes, not the last few days.
+ */
+const MAX_UNDO = 40
 
 export default function App() {
   const [state, setStateRaw] = useState<TractionState>(loadLocal)
@@ -87,6 +96,39 @@ export default function App() {
     saveLocal(state)
   }, [state])
 
+  /**
+   * Undo/redo, this device and this session only.
+   *
+   * Whole-state snapshots rather than per-action inverses: reverting the entire
+   * document at once is the only version of this that cannot leave an invoice
+   * pointing at an entry that no longer exists. Held in refs and never
+   * persisted, so opening the app gives you no arrows and no way to undo
+   * something you did last Tuesday on another machine — which is the honest
+   * scope for a stack that only this tab knows about.
+   */
+  const undoStack = useRef<TractionState[]>([])
+  const redoStack = useRef<TractionState[]>([])
+  const [history, setHistory] = useState({ undo: 0, redo: 0 })
+
+  const syncHistory = useCallback(() => {
+    setHistory({ undo: undoStack.current.length, redo: redoStack.current.length })
+  }, [])
+
+  /**
+   * Forget the history.
+   *
+   * Called whenever the cloud copy replaces what this device was holding. An
+   * undo across that boundary would rewind to a document written before the
+   * other machine's work arrived and then push it back up, quietly undoing
+   * edits made somewhere else — the one way a local-only stack could reach
+   * beyond this device.
+   */
+  const dropHistory = useCallback(() => {
+    undoStack.current = []
+    redoStack.current = []
+    syncHistory()
+  }, [syncHistory])
+
   /** Show a transient status in the chrome, then fall back to idle. */
   const flash = useCallback((status: CloudStatus) => {
     setCloudStatus(status)
@@ -95,6 +137,7 @@ export default function App() {
 
   /** Take the cloud copy as this device's truth. */
   const adoptRemote = useCallback((remote: RemoteState) => {
+    dropHistory()
     setStateRaw(remote.state)
     saveLocal(remote.state)
     // Inherit the cloud's stamp rather than claiming we edited just now —
@@ -103,7 +146,7 @@ export default function App() {
     needsRemoteSave.current = false
     // This device now matches the cloud exactly — nothing left to push.
     setDirty(false)
-  }, [])
+  }, [dropHistory])
 
   /**
    * Does the cloud copy win? Normally that's just "is it newer", but the first
@@ -163,6 +206,9 @@ export default function App() {
         return
       }
       const merged = mergeStates(stateRef.current, remote.state)
+      // Same reasoning as adoptRemote: the document just absorbed work this
+      // device never made, and undoing past that point would discard it.
+      dropHistory()
       setStateRaw(merged)
       saveLocal(merged)
       touchLocal()
@@ -180,7 +226,7 @@ export default function App() {
     needsRemoteSave.current = !ok
     setDirty(!ok)
     flash(ok ? 'saved' : 'error')
-  }, [adoptRemote, flash])
+  }, [adoptRemote, dropHistory, flash])
 
   const scheduleRemoteSave = useCallback((s: TractionState, force = false) => {
     needsRemoteSave.current = true
@@ -239,20 +285,89 @@ export default function App() {
     }
   }, [user, sync])
 
-  /** Single mutation entry point: applies a producer, persists, schedules sync. */
+  /**
+   * Single mutation entry point: applies a producer, persists, schedules sync.
+   *
+   * Also where an undo snapshot is taken, which is why every action in this
+   * file goes through it — anything that edited state another way would be
+   * silently unundoable.
+   *
+   * `opts.silent` opts out, for changes that are not decisions: restoring a
+   * backup and resetting bring their own history, and a stack pointing at the
+   * document they replaced is a trap rather than a safety net.
+   */
   const mutate = useCallback((
     producer: (prev: TractionState) => TractionState,
-    opts: { force?: boolean } = {},
+    opts: { force?: boolean; silent?: boolean } = {},
   ) => {
     setStateRaw(prev => {
       const next = producer(prev)
       if (next === prev) return prev
+      if (opts.silent) {
+        undoStack.current = []
+        redoStack.current = []
+      } else if (undoStack.current[undoStack.current.length - 1] !== prev) {
+        // Guarded by identity: StrictMode runs this updater twice in dev with
+        // the same `prev`, and two snapshots of one action would cost two taps
+        // to undo.
+        undoStack.current.push(prev)
+        if (undoStack.current.length > MAX_UNDO) undoStack.current.shift()
+        // A fresh action is a new branch of history; anything redone from here
+        // belonged to the timeline you just left.
+        redoStack.current = []
+      }
+      syncHistory()
       // Only a real change makes this device the freshest writer.
       touchLocal()
       scheduleRemoteSave(next, opts.force)
       return next
     })
-  }, [scheduleRemoteSave])
+  }, [scheduleRemoteSave, syncHistory])
+
+  /**
+   * Step back one action. Redo puts it back, until the next edit replaces it.
+   *
+   * The stacks are moved OUTSIDE the state updater, unlike in `mutate`.
+   * StrictMode invokes an updater twice, and while a push can be made
+   * idempotent by checking what is already on top, a pop cannot — the second
+   * invocation would quietly take a second step back. Both are triggered by a
+   * discrete click or keystroke, so `stateRef` is exactly the document being
+   * stepped away from.
+   */
+  const undo = useCallback(() => {
+    const snapshot = undoStack.current.pop()
+    if (!snapshot) return
+    redoStack.current.push(stateRef.current)
+    syncHistory()
+    touchLocal()
+    scheduleRemoteSave(snapshot)
+    setStateRaw(snapshot)
+  }, [scheduleRemoteSave, syncHistory])
+
+  const redo = useCallback(() => {
+    const snapshot = redoStack.current.pop()
+    if (!snapshot) return
+    undoStack.current.push(stateRef.current)
+    syncHistory()
+    touchLocal()
+    scheduleRemoteSave(snapshot)
+    setStateRaw(snapshot)
+  }, [scheduleRemoteSave, syncHistory])
+
+  // Ctrl/Cmd+Z and Ctrl+Y / Cmd+Shift+Z, ignored while typing — undoing the
+  // note you are halfway through writing belongs to the text box, not the app.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (!(ev.ctrlKey || ev.metaKey)) return
+      const el = ev.target as HTMLElement | null
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
+      const key = ev.key.toLowerCase()
+      if (key === 'z' && !ev.shiftKey) { ev.preventDefault(); undo() }
+      else if (key === 'y' || (key === 'z' && ev.shiftKey)) { ev.preventDefault(); redo() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [undo, redo])
 
   // ---- Client actions ----
   const addClient = useCallback((name: string): Client => {
@@ -303,9 +418,9 @@ export default function App() {
     mutate(s => {
       const existing = s.entries.find(e => e.id === id)
       if (!existing || existing.invoiceId) return s
-      // Don't strand job photos in Storage. Best-effort and deliberately
-      // un-awaited: a failed cleanup must never block deleting the entry.
-      for (const p of existing.photoPaths ?? []) void deleteReceipt(supabase, p)
+      // Photos STAY in Storage — see deleteExpense. Undo can bring this entry
+      // back, and the pictures of the finished work are the part of it that
+      // cannot be retyped. Settings sweeps what nothing points at.
       return { ...s, entries: s.entries.filter(e => e.id !== id) }
     })
   }, [mutate])
@@ -321,19 +436,20 @@ export default function App() {
     }))
   }, [mutate])
 
-  /** Remove the most recent job photo from an entry, and from Storage. */
+  /**
+   * Take the most recent job photo off an entry.
+   *
+   * The object is left in Storage so this is undoable like everything else;
+   * Settings sweeps anything nothing points at any more.
+   */
   const removeEntryPhoto = useCallback(async (entryId: string) => {
-    let doomed: string | undefined
     mutate(s => ({
       ...s,
       entries: s.entries.map(e => {
         if (e.id !== entryId) return e
-        const paths = [...(e.photoPaths ?? [])]
-        doomed = paths.pop()
-        return { ...e, photoPaths: paths }
+        return { ...e, photoPaths: (e.photoPaths ?? []).slice(0, -1) }
       }),
     }))
-    if (doomed) await deleteReceipt(supabase, doomed)
   }, [mutate])
   const addManualEntry = useCallback((
     serviceId: string, clientId: string | null, startedAt: number, seconds: number, rate: number,
@@ -392,18 +508,27 @@ export default function App() {
   }, [mutate])
 
   /**
-   * Draw some units of a measured container off the shelf for a client — see
-   * drawMeasured. The container keeps whatever is left.
+   * Put material on a client's job at an agreed price.
+   *
+   * One action for both shapes on the shelf. A measured container draws `qty`
+   * units off and keeps the rest (see drawMeasured); anything else simply
+   * takes the client and the terms. Either way the terms are frozen here, at
+   * the moment the decision is made, rather than read back off a container
+   * that may be repriced next month.
    */
-  const drawMeasuredAction = useCallback((
-    id: string, clientId: string, qty: number, pricing: MeasurePricing,
+  const assignPriced = useCallback((
+    id: string, clientId: string, qty: number | null, pricing: MeasurePricing,
   ) => {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
-      if (!existing) return s
-      const rows = drawMeasured(existing, qty, clientId, pricing)
-      if (!rows) return s
-      return { ...s, expenses: s.expenses.flatMap(x => x.id === id ? rows : [x]) }
+      if (!existing || existing.invoiceId) return s
+      if (existing.measure && qty != null) {
+        const rows = drawMeasured(existing, qty, clientId, pricing)
+        if (!rows) return s
+        return { ...s, expenses: s.expenses.flatMap(x => x.id === id ? rows : [x]) }
+      }
+      const priced = cleanPricing(pricing)
+      return { ...s, expenses: s.expenses.map(x => x.id === id ? { ...x, ...priced, clientId } : x) }
     })
   }, [mutate])
 
@@ -496,17 +621,14 @@ export default function App() {
     mutate(s => {
       const existing = s.expenses.find(x => x.id === id)
       if (!existing || existing.invoiceId) return s
-      // Don't strand the receipt photo in Storage. Best-effort and deliberately
-      // un-awaited: a failed cleanup must never block deleting the expense.
+      // The photo deliberately STAYS in Storage.
       //
-      // Split pieces SHARE one stored photo, so only the last piece still
-      // pointing at it may delete it — otherwise deleting an offcut blanks the
-      // receipt on the half that is about to be invoiced.
-      const others = s.expenses.filter(x => x.id !== id)
-      if (existing.receiptPath && receiptRefCount(existing.receiptPath, others) === 0) {
-        void deleteReceipt(supabase, existing.receiptPath)
-      }
-      return { ...s, expenses: others }
+      // Deleting it here would race undo: pressing ↶ brings the expense back,
+      // and it would return pointing at an image that no longer exists — the
+      // one part of an expense this app cannot recreate. Orphans are swept on
+      // demand from Settings instead, which is a decision rather than a
+      // side effect of a mistap.
+      return { ...s, expenses: s.expenses.filter(x => x.id !== id) }
     })
   }, [mutate])
 
@@ -600,6 +722,7 @@ export default function App() {
       dueDate: addDays(issuedDate, s.settings.netDays),
       periodStart, periodEnd, entryIds: [...entryIds], snapshot,
       expenseIds: [...expenseIds], expensesSnapshot,
+      adjustments: [],
       status: opts.alreadyPaid ? 'paid' : 'draft',
       paidDate: opts.alreadyPaid ? periodEnd : null,
       notes: '', createdAt: Date.now(),
@@ -655,6 +778,40 @@ export default function App() {
     }))
   }, [mutate])
 
+  /**
+   * Take money off an invoice: a comp, a discount, a trade.
+   *
+   * Only on a draft. A sent invoice is a number the client has already seen, so
+   * changing it means voiding and reissuing — the same rule every other line
+   * on here follows.
+   */
+  const addAdjustment = useCallback((
+    invoiceId: string, label: string, amount: number, kind: AdjustmentKind,
+  ) => {
+    const clean = Math.max(0, Math.round((amount || 0) * 100) / 100)
+    if (clean <= 0) return
+    mutate(s => ({
+      ...s,
+      invoices: s.invoices.map(i => i.id !== invoiceId || i.status !== 'draft' ? i : {
+        ...i,
+        adjustments: [
+          ...(i.adjustments ?? []),
+          { id: crypto.randomUUID(), label: label.trim() || 'Comp', amount: clean, kind },
+        ],
+      }),
+    }))
+  }, [mutate])
+
+  const removeAdjustment = useCallback((invoiceId: string, adjustmentId: string) => {
+    mutate(s => ({
+      ...s,
+      invoices: s.invoices.map(i => i.id !== invoiceId || i.status !== 'draft' ? i : {
+        ...i,
+        adjustments: (i.adjustments ?? []).filter(a => a.id !== adjustmentId),
+      }),
+    }))
+  }, [mutate])
+
   const setInvoiceStatus = useCallback((id: string, status: InvoiceStatus) => {
     mutate(s => ({
       ...s,
@@ -688,11 +845,11 @@ export default function App() {
   // Reset and import are the two deliberate "make the cloud match this device"
   // actions, so they skip the compare-and-swap that guards accidental overwrites.
   const resetAll = useCallback(() => {
-    mutate(() => emptyState(), { force: true })
+    mutate(() => emptyState(), { force: true, silent: true })
   }, [mutate])
 
   const importData = useCallback((imported: TractionState) => {
-    mutate(() => imported, { force: true })
+    mutate(() => imported, { force: true, silent: true })
   }, [mutate])
 
   const runningEntry = useMemo(() => state.entries.find(e => e.runningSince) ?? null, [state.entries])
@@ -720,6 +877,10 @@ export default function App() {
         onLogout={logout}
         cloudStatus={cloudStatus}
         running={!!runningEntry}
+        canUndo={history.undo > 0}
+        canRedo={history.redo > 0}
+        onUndo={undo}
+        onRedo={redo}
       />
 
       {showRunaway && runningEntry && (
@@ -778,7 +939,7 @@ export default function App() {
             onAssign={assignExpense}
             onSplit={splitExpenseAction}
             onSplitEqually={splitExpenseEquallyAction}
-            onDrawMeasured={drawMeasuredAction}
+            onAssignPriced={assignPriced}
             onRecombine={recombineExpensesAction}
             onDetachFromInvoice={detachFromInvoice}
             onDeleteInvoice={deleteInvoice}
@@ -796,6 +957,8 @@ export default function App() {
             onAddCharge={addInvoiceCharge}
             onUpdateCharge={updateInvoiceCharge}
             onRemoveCharge={removeInvoiceCharge}
+            onAddAdjustment={addAdjustment}
+            onRemoveAdjustment={removeAdjustment}
           />
         )}
         {view === 'reports' && (

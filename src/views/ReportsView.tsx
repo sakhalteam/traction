@@ -3,7 +3,7 @@ import type { DurationStyle, TractionState } from '../types'
 import {
   decimalHours, EXPENSE_CATEGORIES, formatDuration, formatMoney, formatDate, liveSeconds,
   monthKey, periodLabel, todayISO, weekStartISO, clientShortName, entryAmount,
-  isAbsorbed,
+  isAbsorbed, isPriced,
 } from '../store'
 import { BarChart, Donut, type BarDatum, type Slice } from './charts'
 import { DurationToggle } from './DurationFields'
@@ -196,16 +196,16 @@ export function ReportsView({
       if (isAbsorbed(x)) continue
       if (x.billable) billable += x.amount; else overhead += x.amount
       byCat.set(x.category, (byCat.get(x.category) ?? 0) + x.amount)
-      // Measured material charged at more than it cost you: the gap is money
-      // earned, not reimbursed. Only once it's on a client — a container on the
-      // shelf has earned nothing yet, and a settled piece was given away.
+      // Material charged at more than it cost you: the gap is money earned, not
+      // reimbursed. Only once it's on a client — something on the shelf has
+      // earned nothing yet, and a settled piece was given away.
       //
       // Split, because they answer different questions. Markup is "am I making
       // the material back"; fees are "what is the work of applying it worth".
       // Added together they would hide the one you actually want to tune.
-      if (x.measure && x.billable && x.clientId && !x.settled) {
-        markup += Math.round(x.amount * (x.measure.markupPct / 100) * 100) / 100
-        fees += x.measure.serviceFee
+      if (isPriced(x) && x.billable && x.clientId && !x.settled) {
+        markup += Math.round(x.amount * ((x.markupPct ?? 0) / 100) * 100) / 100
+        fees += x.serviceFee ?? 0
       }
     }
     const r2 = (v: number) => Math.round(v * 100) / 100
@@ -215,7 +215,29 @@ export function ReportsView({
     }
   }, [state.expenses, from, to])
 
-  const income = Math.round((totals.earnings + expStats.uplift) * 100) / 100
+  /**
+   * What came off invoices in this range, split by what it cost you.
+   *
+   * A comp is money you decided not to take. A trade is money you swapped for
+   * something you now own, so it leaves you square rather than short — summing
+   * the two would answer a question nobody asked.
+   */
+  const given = useMemo(() => {
+    let comp = 0, trade = 0
+    for (const inv of state.invoices) {
+      if (inv.issuedDate < from || inv.issuedDate > to) continue
+      for (const a of inv.adjustments ?? []) {
+        if (a.kind === 'trade') trade += a.amount || 0
+        else comp += a.amount || 0
+      }
+    }
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    return { comp: r2(comp), trade: r2(trade), total: r2(comp + trade) }
+  }, [state.invoices, from, to])
+
+  // Comps and trades are already absent from what each invoice asks for, so
+  // they reduce income rather than being subtracted again further down.
+  const income = Math.round((totals.earnings + expStats.uplift - given.total) * 100) / 100
   const net = Math.round((income - expStats.overhead) * 100) / 100
   const categorySlices: Slice[] = useMemo(() => (
     [...expStats.byCat.entries()]
@@ -319,18 +341,22 @@ export function ReportsView({
         {/* What the material actually earned, kept as two numbers on purpose —
             the markup says whether the jug pays for itself, the fees say what
             applying it is worth. Hidden until there is something to show. */}
-        {expStats.uplift !== 0 && (
+        {(expStats.uplift !== 0 || given.total !== 0) && (
           <div className="stat-grid">
             <StatTile label="Material margin" value={formatMoney(expStats.markup, cur)} />
             <StatTile label="Service fees" value={formatMoney(expStats.fees, cur)} />
+            <StatTile label="Comped" value={formatMoney(given.comp, cur)} />
+            <StatTile label="Traded" value={formatMoney(given.trade, cur)} />
           </div>
         )}
         <p className="hint tiny">
           Net = income − overhead. Billable materials ({formatMoney(expStats.billable, cur)}) are
           treated as reimbursed by clients, so they don't reduce profit. Track costs in the Expenses tab.
           {expStats.uplift !== 0 && <> Income includes {formatMoney(expStats.uplift, cur)} charged
-            over cost on measured materials — {formatMoney(expStats.markup, cur)} of markup
+            over cost on materials — {formatMoney(expStats.markup, cur)} of markup
             and {formatMoney(expStats.fees, cur)} of service fees.</>}
+          {given.total !== 0 && <> It is already net of {formatMoney(given.comp, cur)} comped
+            and {formatMoney(given.trade, cur)} traded away on invoices.</>}
         </p>
       </div>
 

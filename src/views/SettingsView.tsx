@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { DurationStyle, Settings, TractionState } from '../types'
 import { entriesToCSV, expensesToCSV, parseBackup, serializeBackup, todayISO } from '../store'
-import { ReceiptError, uploadInvoiceBg, uploadLogo } from '../receipts'
+import { ReceiptError, deleteReceipts, findOrphanReceipts, uploadInvoiceBg, uploadLogo } from '../receipts'
 import { supabase } from '../supabaseClient'
 import { DurationToggle } from './DurationFields'
 import { LogoImage } from './LogoImage'
@@ -28,6 +28,44 @@ export function SettingsView({
   const [s, setS] = useState(state.settings)
   const [confirmReset, setConfirmReset] = useState(false)
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [sweepMsg, setSweepMsg] = useState<string | null>(null)
+  const [sweeping, setSweeping] = useState(false)
+
+  /**
+   * Delete stored images nothing points at any more.
+   *
+   * Deleting an expense, an entry or a receipt leaves its picture behind so
+   * that undo can put it back. This is where that debt gets paid, on purpose
+   * and never automatically.
+   *
+   * The in-use set spans EVERY path the app stores, not just receipts: job
+   * photos, your logo and the invoice background share this bucket, and a
+   * sweep that forgot one would cheerfully delete your letterhead. Absorbed
+   * expenses count too — they are history, and history keeps its evidence.
+   */
+  async function sweepOrphans() {
+    setSweeping(true)
+    setSweepMsg(null)
+    try {
+      const inUse = new Set<string>()
+      for (const x of state.expenses) if (x.receiptPath) inUse.add(x.receiptPath)
+      for (const en of state.entries) for (const p of en.photoPaths ?? []) inUse.add(p)
+      if (state.settings.logoPath) inUse.add(state.settings.logoPath)
+      if (state.settings.invoiceBgPath) inUse.add(state.settings.invoiceBgPath)
+
+      const orphans = await findOrphanReceipts(supabase, inUse)
+      if (orphans.length === 0) {
+        setSweepMsg('Nothing to clean up — every stored photo is still attached to something.')
+        return
+      }
+      await deleteReceipts(supabase, orphans)
+      setSweepMsg(`Removed ${orphans.length} unused photo${orphans.length === 1 ? '' : 's'}.`)
+    } catch {
+      setSweepMsg('Could not reach storage. Try again when you are back online.')
+    } finally {
+      setSweeping(false)
+    }
+  }
   const fileRef = useRef<HTMLInputElement>(null)
   const logoRef = useRef<HTMLInputElement>(null)
   const [logoBusy, setLogoBusy] = useState(false)
@@ -214,6 +252,19 @@ export function SettingsView({
           <p className={`hint tiny ${importMsg.ok ? 'ok' : 'err'}`}>{importMsg.text}</p>
         )}
         <p className="hint tiny">Restoring replaces everything currently in traction with the backup's contents.</p>
+      </div>
+
+      <div className="panel">
+        <h3>Stored photos</h3>
+        <p className="hint">
+          Deleting an expense or an entry leaves its photo in storage, so <strong>↶ undo</strong> can
+          bring the whole thing back intact. Clean up when you are sure — it only removes
+          images nothing points at any more, and never touches your logo or invoice background.
+        </p>
+        <button className="btn" disabled={sweeping} onClick={sweepOrphans}>
+          {sweeping ? 'Checking…' : '🧹 Clean up unused photos'}
+        </button>
+        {sweepMsg && <p className="hint tiny">{sweepMsg}</p>}
       </div>
 
       <div className="panel danger-zone">

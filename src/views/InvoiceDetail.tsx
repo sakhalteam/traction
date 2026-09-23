@@ -1,8 +1,8 @@
 import { Fragment, useMemo, useRef, useState } from 'react'
-import type { Invoice, InvoiceStatus, TractionState } from '../types'
+import type { AdjustmentKind, Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, expensesTotal, formatDate, formatDuration, formatMoney,
-  clientAttn, clientFullName, isMeasuredLine,
+  clientAttn, clientFullName, isMeasuredLine, adjustmentsTotal, ADJUSTMENT_OPTIONS, ADJUSTMENT_LABELS,
 } from '../store'
 import { ReceiptLink } from './ReceiptLink'
 import { JobPhotos } from './JobPhotos'
@@ -15,6 +15,7 @@ const STATUSES: InvoiceStatus[] = ['draft', 'sent', 'paid']
 
 export function InvoiceDetail({
   invoice, state, onBack, onSetStatus, onUpdate, onDelete, onAddCharge, onUpdateCharge, onRemoveCharge,
+  onAddAdjustment, onRemoveAdjustment,
 }: {
   invoice: Invoice
   state: TractionState
@@ -25,6 +26,8 @@ export function InvoiceDetail({
   onAddCharge: (invoiceId: string) => void
   onUpdateCharge: (invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => void
   onRemoveCharge: (invoiceId: string, expenseId: string) => void
+  onAddAdjustment: (invoiceId: string, label: string, amount: number, kind: AdjustmentKind) => void
+  onRemoveAdjustment: (invoiceId: string, adjustmentId: string) => void
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
   const sheetRef = useRef<HTMLDivElement>(null)
@@ -62,7 +65,9 @@ export function InvoiceDetail({
   }, [invoice.snapshot, invoice.entryIds, state.entries, state.services])
 
   const expTotal = expensesTotal(invoice)
-  const grand = Math.round((breakdown.total + expTotal) * 100) / 100
+  const adjustments = invoice.adjustments ?? []
+  const adjTotal = adjustmentsTotal(invoice)
+  const grand = Math.max(0, Math.round((breakdown.total + expTotal - adjTotal) * 100) / 100)
 
   return (
     <div className="view invoice-detail">
@@ -210,6 +215,15 @@ export function InvoiceDetail({
                 </tr>
               </>
             )}
+            {/* Printed under its own label rather than folded into the total,
+                because a client seeing what they were let off is the entire
+                point of doing it. */}
+            {adjustments.map(a => (
+              <tr key={a.id} className="foot-sub adjustment">
+                <td colSpan={4}>{a.label}</td>
+                <td className="num">−{formatMoney(a.amount, settings.currency)}</td>
+              </tr>
+            ))}
             <tr className="grand-total">
               <td colSpan={2}>Total</td>
               <td className="num">{formatDuration(breakdown.totalSeconds, durationStyle)}</td>
@@ -223,6 +237,13 @@ export function InvoiceDetail({
           <ChargesEditor
             invoice={invoice} currency={settings.currency}
             onAdd={onAddCharge} onUpdate={onUpdateCharge} onRemove={onRemoveCharge}
+          />
+        )}
+
+        {invoice.status === 'draft' && (
+          <AdjustmentsEditor
+            invoice={invoice} currency={settings.currency}
+            onAdd={onAddAdjustment} onRemove={onRemoveAdjustment}
           />
         )}
 
@@ -334,6 +355,72 @@ function InvoiceNotes({ invoice, onUpdate }: { invoice: Invoice; onUpdate: (i: I
         onBlur={() => { if (notes !== invoice.notes) onUpdate({ ...invoice, notes }) }}
       />
       {invoice.notes && <p className="printed-notes">{invoice.notes}</p>}
+    </div>
+  )
+}
+
+/**
+ * Comps, discounts and trades, taken off a draft.
+ *
+ * Two kinds rather than a free-for-all, because only one distinction changes
+ * what the year looks like: a comp is money given away, a trade is money
+ * swapped for something you now own. The label is yours to write either way —
+ * "watched the dog for a weekend" is the part you will want to read back.
+ */
+function AdjustmentsEditor({
+  invoice, currency, onAdd, onRemove,
+}: {
+  invoice: Invoice
+  currency: string
+  onAdd: (invoiceId: string, label: string, amount: number, kind: AdjustmentKind) => void
+  onRemove: (invoiceId: string, adjustmentId: string) => void
+}) {
+  const [label, setLabel] = useState('')
+  const [amount, setAmount] = useState('')
+  const [kind, setKind] = useState<AdjustmentKind>('comp')
+  const value = Math.max(0, Number(amount) || 0)
+  const adjustments = invoice.adjustments ?? []
+
+  function add() {
+    if (value <= 0) return
+    onAdd(invoice.id, label, value, kind)
+    setLabel('')
+    setAmount('')
+  }
+
+  return (
+    <div className="invoice-expenses no-print">
+      <span className="label">Comp / discount — money off this invoice</span>
+      {adjustments.map(a => (
+        <div key={a.id} className="expense-row">
+          <span className="adjustment-line">
+            <span className={`expense-badge tiny ${a.kind}`}>{ADJUSTMENT_LABELS[a.kind]}</span>
+            {a.label} — −{formatMoney(a.amount, currency)}
+          </span>
+          <button className="icon-btn danger" title="Remove"
+            onClick={() => onRemove(invoice.id, a.id)}>✕</button>
+        </div>
+      ))}
+      <div className="expense-row">
+        <input placeholder="e.g. Trade — weight plates" value={label}
+          onChange={e => setLabel(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') add() }} />
+        <input className="narrow" type="number" min="0" step="0.01" placeholder="0.00" value={amount}
+          onChange={e => setAmount(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') add() }} />
+      </div>
+      <div className="quick-row adjustment-kinds">
+        {ADJUSTMENT_OPTIONS.map(k => (
+          <button key={k} type="button" className={`chip ${kind === k ? 'sel' : ''}`}
+            onClick={() => setKind(k)}>{ADJUSTMENT_LABELS[k]}</button>
+        ))}
+        <button className="btn" disabled={value <= 0} onClick={add}>+ Take it off</button>
+      </div>
+      <p className="hint tiny">
+        Prints on the invoice under whatever you call it. <strong>Comp</strong> is money given
+        away; <strong>Trade</strong> is money swapped for something you got back — Reports keeps
+        them apart, because one of those leaves you poorer and the other does not.
+      </p>
     </div>
   )
 }

@@ -233,6 +233,16 @@ const SECTIONS: HelpSection[] = [
           finding that out in somebody's yard is too late.</>,
       },
       {
+        title: 'Undo and redo',
+        body: <>The <Key>↶</Key> and <Key>↷</Key> arrows appear in the header the moment you
+          change something, and <strong>Ctrl+Z</strong> / <strong>Ctrl+Y</strong> do the same.
+          They cover this device and this session only — reload the page and the history is
+          gone, and nothing you did on your phone can be undone here. Deleting an expense or
+          an entry now <em>keeps</em> its photos in storage so undo can bring the whole thing
+          back; <strong>Settings → Stored photos</strong> clears out what nothing points at
+          any more.</>,
+      },
+      {
         title: 'Track by quantity',
         body: <>For material you use a bit at a time — a quart of herbicide, a bucket of
           zinc — tick <strong>Track by quantity</strong> when you log it (or later, with
@@ -259,6 +269,16 @@ const SECTIONS: HelpSection[] = [
           size of yard take?". Never the brand, never your cost. Markup and fees both count
           as income in Reports, listed separately. Unused? Drag it back to the shelf and
           onto its container to pour it back in.</>,
+      },
+      {
+        title: 'Comp, discount or trade an invoice',
+        body: <>On a <strong>draft</strong>, under the charges, you can take money off and
+          call it whatever you like — <em>"Trade — weight plates"</em>, <em>"Sorry about the
+          gate"</em>. The hours and materials still print in full, then the credit prints
+          under your own wording. Pick <strong>Comp</strong> for money given away
+          or <strong>Trade</strong> for money swapped for something you got back; Reports
+          counts them separately, because only one of those leaves you poorer. Once an
+          invoice is sent the number is a promise — void and reissue instead.</>,
       },
       {
         title: 'The tiles open',

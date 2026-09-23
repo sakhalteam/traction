@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { Invoice, InvoiceStatus, TractionState } from '../types'
+import type { AdjustmentKind, Invoice, InvoiceStatus, TractionState } from '../types'
 import {
   buildBreakdown, formatDate, formatDuration, formatMoney, invoiceTotal, liveSeconds, todayISO,
   agingOf, AGING_LABELS, nextInvoiceNumber, clientFullName, entryAmount, isFlat,
@@ -10,7 +10,7 @@ import { Picker } from './Picker'
 
 export function InvoicesView({
   state, initialClientId, onCreate, onSetStatus, onUpdate, onDelete,
-  onAddCharge, onUpdateCharge, onRemoveCharge,
+  onAddCharge, onUpdateCharge, onRemoveCharge, onAddAdjustment, onRemoveAdjustment,
 }: {
   state: TractionState
   /** Client to open the builder on, set when arriving from a "bill this" button. */
@@ -25,6 +25,8 @@ export function InvoicesView({
   onAddCharge: (invoiceId: string) => void
   onUpdateCharge: (invoiceId: string, expenseId: string, patch: { label?: string; amount?: number }) => void
   onRemoveCharge: (invoiceId: string, expenseId: string) => void
+  onAddAdjustment: (invoiceId: string, label: string, amount: number, kind: AdjustmentKind) => void
+  onRemoveAdjustment: (invoiceId: string, adjustmentId: string) => void
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
 
@@ -41,6 +43,8 @@ export function InvoicesView({
         onAddCharge={onAddCharge}
         onUpdateCharge={onUpdateCharge}
         onRemoveCharge={onRemoveCharge}
+        onAddAdjustment={onAddAdjustment}
+        onRemoveAdjustment={onRemoveAdjustment}
       />
     )
   }
@@ -195,8 +199,10 @@ function InvoiceBuilder({
                           <input type="checkbox" checked={inc} onChange={() => toggleExp(x.id)} />
                           <span className="cand-date">{formatDate(x.date)}</span>
                           <span className="cand-svc"><span className="expense-badge billable tiny">{x.category}</span> {x.measure
-                            ? <>{x.measure.clientLabel || x.label} × {x.measure.qty} <span className="dim">({x.label})</span></>
-                            : x.label}</span>
+                            ? <>{x.clientLabel || x.label} × {x.measure.qty} <span className="dim">({x.label})</span></>
+                            : x.clientLabel
+                              ? <>{x.clientLabel} <span className="dim">({x.label})</span></>
+                              : x.label}</span>
                           <span className="cand-dur" />
                           <span className="cand-amt">{formatMoney(billedAmount(x), cur)}</span>
                         </label>

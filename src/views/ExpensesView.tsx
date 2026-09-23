@@ -4,13 +4,13 @@ import type { Expense, Measure, SettledHow, TractionState } from '../types'
 import {
   EXPENSE_CATEGORIES, clientColor, clientFullName, clientShortName,
   formatDate, formatMoney, makeExpense, todayISO,
-  expenseState, isOpenExpense, isAbsorbed, lineageMark, siblingsOf, receiptRefCount,
+  expenseState, isOpenExpense, isAbsorbed, lineageMark, siblingsOf,
   SETTLED_LABELS, SETTLED_OPTIONS, DEFAULT_MARKUP_PCT, billedAmount, costPerUnit,
-  priceUnits, drawCost, type MeasurePricing,
+  priceUnits, drawCost, isPriced, cleanPricing, type MeasurePricing,
 } from '../store'
 import { ClientLabel } from '../Chrome'
 import { supabase } from '../supabaseClient'
-import { ReceiptError, deleteReceipt, receiptUrl, uploadReceipt } from '../receipts'
+import { ReceiptError, receiptUrl, uploadReceipt } from '../receipts'
 import { useShelfDrag, type DropTarget } from '../useShelfDrag'
 import { Picker } from './Picker'
 
@@ -33,7 +33,7 @@ type PendingDrop =
 
 export function ExpensesView({
   state, onAdd, onUpdate, onDelete, onSettle, onAssign, onSplit,
-  onSplitEqually, onDrawMeasured, onRecombine, onDetachFromInvoice, onDeleteInvoice, onGoInvoice,
+  onSplitEqually, onAssignPriced, onRecombine, onDetachFromInvoice, onDeleteInvoice, onGoInvoice,
 }: {
   state: TractionState
   onAdd: (x: Expense) => void
@@ -43,7 +43,7 @@ export function ExpensesView({
   onAssign: (id: string, clientId: string | null) => void
   onSplit: (id: string, billedAmount: number) => void
   onSplitEqually: (id: string, parts: number) => void
-  onDrawMeasured: (id: string, clientId: string, qty: number, pricing: MeasurePricing) => void
+  onAssignPriced: (id: string, clientId: string, qty: number | null, pricing: MeasurePricing) => void
   onRecombine: (survivorId: string, absorbedIds: string[]) => void
   onDetachFromInvoice: (id: string) => void
   onDeleteInvoice: (id: string) => void
@@ -183,7 +183,7 @@ export function ExpensesView({
   ]
 
   const rowProps = {
-    state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually, onDrawMeasured, onGoInvoice,
+    state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually, onAssignPriced, onGoInvoice,
     dragHandle, draggingId: drag.id,
     mergeTargetId: drag.target?.kind === 'merge' ? drag.target.id : null,
   }
@@ -253,7 +253,7 @@ export function ExpensesView({
           state={state}
           onClose={() => setPending(null)}
           onAssign={onAssign}
-          onDrawMeasured={onDrawMeasured}
+          onAssignPriced={onAssignPriced}
           onRecombine={onRecombine}
           onDetach={onDetachFromInvoice}
           onDeleteInvoice={onDeleteInvoice}
@@ -367,6 +367,8 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
   const [billable, setBillable] = useState(true)
   const [note, setNote] = useState('')
   const [measure, setMeasure] = useState<Measure | null>(null)
+  const [pricing, setPricing] = useState<MeasurePricing>(
+    { clientLabel: '', markupPct: DEFAULT_MARKUP_PCT, serviceFee: 0 })
   // Measured material starts on the shelf and is drawn off it by the unit, so
   // it only makes sense billable and with no client yet.
   const measured = billable && !clientId && measure
@@ -380,6 +382,7 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
       label: label.trim(), amount: amt, category,
       clientId: clientId || null, billable, note: note.trim(),
       measure: measured ? cleanMeasure(measured) : null,
+      ...(billable ? cleanPricing(pricing) : {}),
     })
     setLabel(''); setAmount(''); setNote(''); setMeasure(null)
   }
@@ -424,6 +427,7 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
       </div>
       {billable && !clientId && (
         <>
+          <PricingFields value={pricing} onChange={setPricing} />
           <MeasureFields amount={Number(amount) || 0} cur={state.settings.currency} value={measure} onChange={setMeasure} />
           {!measure && (
             <p className="hint tiny">Heads up: a billable expense needs a client to be added to an invoice.</p>
@@ -438,7 +442,7 @@ function AddExpenseForm({ state, onAdd }: { state: TractionState; onAdd: (x: Exp
 }
 
 function ExpenseRow({
-  expense, state, onUpdate, onDelete, onSettle, onAssign, onSplit, onSplitEqually, onDrawMeasured,
+  expense, state, onUpdate, onDelete, onSettle, onSplit, onSplitEqually, onAssignPriced,
   onGoInvoice, dragHandle, draggingId, mergeTargetId,
 }: {
   expense: Expense
@@ -449,7 +453,7 @@ function ExpenseRow({
   onAssign: (id: string, clientId: string | null) => void
   onSplit: (id: string, billedAmount: number) => void
   onSplitEqually: (id: string, parts: number) => void
-  onDrawMeasured: (id: string, clientId: string, qty: number, pricing: MeasurePricing) => void
+  onAssignPriced: (id: string, clientId: string, qty: number | null, pricing: MeasurePricing) => void
   onGoInvoice: (clientId?: string) => void
   dragHandle: (id: string) => { onPointerDown: (e: ReactPointerEvent) => void }
   draggingId: string | null
@@ -552,22 +556,31 @@ function ExpenseRow({
                 {m.qty} of {m.holds} {m.unit} left
               </span>
             : <span className="measure-tag" title={`${m.qty} ${m.unit} of ${expense.label || 'this'}`}>
-                {m.clientLabel || expense.label} × {m.qty}
+                {expense.clientLabel || expense.label} × {m.qty}
               </span>)}
+          {/* Marked-up material that isn't measured says so too, otherwise the
+              only clue that a row bills for more than it cost is the figure. */}
+          {!m && expense.clientId && isPriced(expense) && (
+            <span className="measure-tag" title={`Costs you ${formatMoney(expense.amount, cur)}`}>
+              {expense.clientLabel || expense.label}
+              {expense.markupPct ? ` +${expense.markupPct}%` : ''}
+              {expense.serviceFee ? ` +${formatMoney(expense.serviceFee, cur)} fee` : ''}
+            </span>
+          )}
         </div>
       </div>
       <div className="entry-figures">
         {/* On a client, a measured piece shows what they'll be charged — that is
             the number the "ready to bill" tile adds up. On the shelf it is still
             what you paid: nobody owes it yet. */}
-        {m && expense.clientId
+        {expense.clientId && isPriced(expense)
           ? <span className="entry-dur" title={`Cost you ${formatMoney(expense.amount, cur)}`}>{formatMoney(billedAmount(expense), cur)}</span>
           : <span className="entry-dur">{formatMoney(expense.amount, cur)}</span>}
       </div>
       <div className="entry-actions">
         {/* Receipts stay available even once invoiced — that is exactly when a
             client is most likely to ask for proof of a charge. */}
-        <ReceiptControl expense={expense} all={state.expenses} onUpdate={onUpdate} />
+        <ReceiptControl expense={expense} onUpdate={onUpdate} />
         {isOpenExpense(expense) && (
           <>
             {st === 'shelf' && (
@@ -616,8 +629,7 @@ function ExpenseRow({
           expense={expense}
           cur={cur}
           onPick={(id, draft) => {
-            if (draft) onDrawMeasured(expense.id, id, draft.qty, draft)
-            else onAssign(expense.id, id)
+            onAssignPriced(expense.id, id, m ? draft.qty : null, draft)
             setDrawer(null)
           }}
           onCancel={() => setDrawer(null)}
@@ -690,22 +702,20 @@ function AssignDrawer({
   state: TractionState
   expense: Expense
   cur: string
-  /** `draft` is null for ordinary material, which has nothing to price. */
-  onPick: (clientId: string, draft: DrawDraft | null) => void
+  onPick: (clientId: string, draft: DrawDraft) => void
   onCancel: () => void
 }) {
   const clients = state.clients.filter(c => !c.archived)
-  const m = expense.measure ?? null
-  const [draft, setDraft] = useState<DrawDraft>(() => newDraft(m))
-  const bad = !!m && !draftValid(draft, m)
+  const [draft, setDraft] = useState<DrawDraft>(() => newDraft(expense))
+  const bad = !draftValid(draft, expense)
   return (
     <div className="row-drawer">
       <span className="drawer-label">Whose job did this go to?</span>
-      {m && <MeasureAssignFields expense={expense} measure={m} cur={cur} draft={draft} onChange={setDraft} />}
+      <AssignFields expense={expense} cur={cur} draft={draft} onChange={setDraft} />
       <div className="settle-opts">
         {clients.map(c => (
           <button key={c.id} type="button" className="chip" disabled={bad}
-            onClick={() => onPick(c.id, m ? draft : null)}>
+            onClick={() => onPick(c.id, draft)}>
             {clientShortName(c)}
           </button>
         ))}
@@ -793,13 +803,13 @@ function SplitDrawer({
  * yard is not consent to re-bill somebody.
  */
 function DropDialog({
-  pending, state, onClose, onAssign, onDrawMeasured, onRecombine, onDetach, onDeleteInvoice,
+  pending, state, onClose, onAssignPriced, onRecombine, onDetach, onDeleteInvoice,
 }: {
   pending: PendingDrop
   state: TractionState
   onClose: () => void
   onAssign: (id: string, clientId: string | null) => void
-  onDrawMeasured: (id: string, clientId: string, qty: number, pricing: MeasurePricing) => void
+  onAssignPriced: (id: string, clientId: string, qty: number | null, pricing: MeasurePricing) => void
   onRecombine: (survivorId: string, absorbedIds: string[]) => void
   onDetach: (id: string) => void
   onDeleteInvoice: (id: string) => void
@@ -809,7 +819,7 @@ function DropDialog({
   const find = (id: string) => state.expenses.find(x => x.id === id) ?? null
   const assignExp = pending.kind === 'assign' ? find(pending.id) : null
   const assignMeasure = assignExp?.measure ?? null
-  const [draft, setDraft] = useState<DrawDraft>(() => newDraft(assignMeasure))
+  const [draft, setDraft] = useState<DrawDraft>(() => newDraft(assignExp ?? null))
 
   let body: ReactNode = null
   let title = ''
@@ -821,22 +831,20 @@ function DropDialog({
       <>
         <p className="hint tiny">
           {assignMeasure
-            ? <>How much went on the job? That much comes out of {exp?.label || 'the container'} and
-                waits to be billed; the rest stays on the shelf.</>
-            : <>{exp?.label || 'This'} comes off the shelf and waits to be billed. It is not on
-                an invoice yet — that is still a separate step.</>}
+            ? <>How much went on the job, and on what terms? That much comes out
+                of {exp?.label || 'the container'}; the rest stays on the shelf.</>
+            : <>{exp?.label || 'This'} comes off the shelf and waits to be billed on the terms
+                below. It is not on an invoice yet — that is still a separate step.</>}
         </p>
-        {assignMeasure && assignExp && (
-          <MeasureAssignFields expense={assignExp} measure={assignMeasure} cur={cur}
-            draft={draft} onChange={setDraft} />
+        {assignExp && (
+          <AssignFields expense={assignExp} cur={cur} draft={draft} onChange={setDraft} />
         )}
         <div className="settle-opts">
           {clients.map(c => (
             <button key={c.id} type="button" className="chip"
-              disabled={!!assignMeasure && !draftValid(draft, assignMeasure)}
+              disabled={!!assignExp && !draftValid(draft, assignExp)}
               onClick={() => {
-                if (assignMeasure) onDrawMeasured(pending.id, c.id, draft.qty, draft)
-                else onAssign(pending.id, c.id)
+                onAssignPriced(pending.id, c.id, assignMeasure ? draft.qty : null, draft)
                 onClose()
               }}>
               {clientShortName(c)}
@@ -927,15 +935,15 @@ function DropDialog({
  * Attach / view / remove the receipt photo for one expense. Only the object
  * path is written back onto the expense — the image itself lives in Storage.
  *
- * Takes the whole expense list because split pieces SHARE one stored photo:
- * detaching it here must leave the siblings' copy alone, and only delete the
- * object once nothing points at it any more.
+ * Nothing here deletes a stored object. Split pieces share one photo, undo can
+ * put back anything this removes, and an image is the one part of an expense
+ * that cannot be retyped — so detaching only ever forgets the path. Settings
+ * sweeps whatever nothing points at any more.
  */
 function ReceiptControl({
-  expense, all, onUpdate,
+  expense, onUpdate,
 }: {
   expense: Expense
-  all: Expense[]
   onUpdate: (x: Expense) => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -948,14 +956,10 @@ function ReceiptControl({
     setBusy(true)
     setError(null)
     try {
-      // Replacing? Drop the old object so we don't leave it orphaned.
-      const previous = expense.receiptPath
       const path = await uploadReceipt(supabase, expense.id, file)
       onUpdate({ ...expense, receiptPath: path })
-      // Shared with a sibling piece? Then it is still somebody's evidence.
-      if (previous && receiptRefCount(previous, all.filter(x => x.id !== expense.id)) === 0) {
-        await deleteReceipt(supabase, previous)
-      }
+      // The replaced object stays put: this is one Ctrl+Z away from being the
+      // attached receipt again. Settings sweeps what nothing points at.
     } catch (err) {
       setError(err instanceof ReceiptError ? err.message : 'Upload failed.')
     } finally {
@@ -982,12 +986,7 @@ function ReceiptControl({
     if (!expense.receiptPath) return
     setBusy(true)
     setError(null)
-    const path = expense.receiptPath
     onUpdate({ ...expense, receiptPath: null })
-    // Only the last piece still pointing at the photo may delete it.
-    if (receiptRefCount(path, all.filter(x => x.id !== expense.id)) === 0) {
-      await deleteReceipt(supabase, path)
-    }
     setBusy(false)
   }
 
@@ -1038,6 +1037,9 @@ function ExpenseEditor({
   // already drawn off a container — i.e. on the shelf, or already measured.
   const canMeasure = x.billable && (!x.clientId || !!expense.measure)
   const measure = canMeasure ? x.measure ?? null : null
+  const pricing: MeasurePricing = {
+    clientLabel: x.clientLabel ?? '', markupPct: x.markupPct ?? 0, serviceFee: x.serviceFee ?? 0,
+  }
   const bad = !!measure && !measureValid(measure)
 
   return (
@@ -1073,6 +1075,7 @@ function ExpenseEditor({
         <label className="field"><span>Note</span>
           <input value={x.note} onChange={e => set({ note: e.target.value })} /></label>
       </div>
+      {x.billable && <PricingFields value={pricing} onChange={p => set(p)} />}
       {canMeasure && (
         <MeasureFields amount={x.amount} cur={state.settings.currency} value={measure} existing={!!expense.measure}
           onChange={mm => set({ measure: mm })} />
@@ -1086,46 +1089,48 @@ function ExpenseEditor({
   )
 }
 
-/** True once a measure can actually be drawn from and billed. */
+/** True once a container can actually be drawn from. */
 function measureValid(m: Measure): boolean {
-  return !!m.unit.trim() && m.holds >= 1 && m.qty >= 0 && m.qty <= m.holds
-    && m.markupPct >= 0 && m.serviceFee >= 0 && m.usual >= 1
+  return !!m.unit.trim() && m.holds >= 1 && m.qty >= 0 && m.qty <= m.holds && m.usual >= 1
 }
 
 function cleanMeasure(m: Measure): Measure {
   return {
     ...m,
     unit: m.unit.trim(),
-    clientLabel: m.clientLabel.trim(),
     holds: Math.floor(m.holds),
     qty: Math.floor(m.qty),
     usual: Math.floor(m.usual),
-    markupPct: Math.round(m.markupPct * 10) / 10,
-    serviceFee: Math.round(m.serviceFee * 100) / 100,
   }
 }
 
 /**
  * What one assignment charges: how much went out, under what name, at what
- * markup, with what fee. Seeded from the container and then free to differ —
- * the same jug can go out on gentler terms for the neighbour you like.
+ * markup, with what fee.
+ *
+ * Seeded from the expense's own terms and then free to differ — the same jug
+ * goes out on gentler terms for the neighbour you like, and the record says so
+ * afterwards.
  */
 interface DrawDraft extends MeasurePricing {
+  /** Units drawn. Ignored for material that isn't counted. */
   qty: number
 }
 
-function newDraft(m: Measure | null): DrawDraft {
-  if (!m) return { qty: 0, clientLabel: '', markupPct: 0, serviceFee: 0 }
+function newDraft(x: Expense | null): DrawDraft {
+  const m = x?.measure ?? null
   return {
-    qty: Math.min(Math.max(1, m.usual), Math.max(1, m.qty)),
-    clientLabel: m.clientLabel,
-    markupPct: m.markupPct,
-    serviceFee: m.serviceFee,
+    qty: m ? Math.min(Math.max(1, m.usual), Math.max(1, m.qty)) : 0,
+    clientLabel: x?.clientLabel ?? '',
+    markupPct: x?.markupPct ?? 0,
+    serviceFee: x?.serviceFee ?? 0,
   }
 }
 
-function draftValid(d: DrawDraft, m: Measure): boolean {
-  return d.qty >= 1 && d.qty <= m.qty && d.markupPct >= 0 && d.serviceFee >= 0
+function draftValid(d: DrawDraft, x: Expense): boolean {
+  if (d.markupPct < 0 || d.serviceFee < 0) return false
+  const m = x.measure
+  return !m || (d.qty >= 1 && d.qty <= m.qty)
 }
 
 /**
@@ -1133,29 +1138,33 @@ function draftValid(d: DrawDraft, m: Measure): boolean {
  *
  * Every number here is typed rather than computed, and the total underneath is
  * the only thing doing arithmetic. A big lawn belonging to someone you want to
- * go easy on gets a smaller fee, and the record afterwards says so.
+ * go easy on gets a smaller fee, on purpose.
  */
-function MeasureAssignFields({
-  expense, measure, cur, draft, onChange,
+function AssignFields({
+  expense, cur, draft, onChange,
 }: {
   expense: Expense
-  measure: Measure
   cur: string
   draft: DrawDraft
   onChange: (d: DrawDraft) => void
 }) {
   const set = (patch: Partial<DrawDraft>) => onChange({ ...draft, ...patch })
-  const unit = measure.unit || 'units'
-  const cost = drawCost(expense, draft.qty)
+  const m = expense.measure ?? null
+  const unit = m?.unit || 'units'
+  // Counted material is priced on the units drawn; everything else on the whole
+  // of what it cost.
+  const cost = m ? drawCost(expense, draft.qty) : expense.amount
   const billed = priceUnits(cost, draft.markupPct, draft.serviceFee)
   const name = draft.clientLabel.trim() || expense.label || 'This'
 
   return (
     <div className="measure-assign">
       <div className="field-row">
-        <label className="field narrow-field"><span>How many {unit}? ({measure.qty} left)</span>
-          <input type="number" min="1" max={measure.qty} step="1" value={draft.qty || ''}
-            onChange={e => set({ qty: Math.floor(Number(e.target.value) || 0) })} /></label>
+        {m && (
+          <label className="field narrow-field"><span>How many {unit}? ({m.qty} left)</span>
+            <input type="number" min="1" max={m.qty} step="1" value={draft.qty || ''}
+              onChange={e => set({ qty: Math.floor(Number(e.target.value) || 0) })} /></label>
+        )}
         <label className="field"><span>Name on invoice</span>
           <input placeholder={expense.label || 'e.g. Herbicide treatment'} value={draft.clientLabel}
             onChange={e => set({ clientLabel: e.target.value })} /></label>
@@ -1172,8 +1181,39 @@ function MeasureAssignFields({
           a field: everything above it is yours to overrule. */}
       <p className="measure-quote">
         <strong>{formatMoney(billed, cur)}</strong> on their invoice as &ldquo;{name}&rdquo;
-        <span className="dim"> · {draft.qty} {unit} costs you {formatMoney(cost, cur)}</span>
+        <span className="dim">
+          {' · '}{m ? `${draft.qty} ${unit} costs` : 'cost'} you {formatMoney(cost, cur)}
+        </span>
       </p>
+    </div>
+  )
+}
+
+/**
+ * The terms an expense carries by default, set when you log it or edit it.
+ *
+ * Defaults only: what actually reaches an invoice is chosen again when the
+ * material is put on a job, so these carry your usual arrangement rather than
+ * a fixed one.
+ */
+function PricingFields({
+  value, onChange,
+}: {
+  value: MeasurePricing
+  onChange: (p: MeasurePricing) => void
+}) {
+  const set = (patch: Partial<MeasurePricing>) => onChange({ ...value, ...patch })
+  return (
+    <div className="field-row pricing-fields">
+      <label className="field"><span>Name on invoice</span>
+        <input placeholder="optional — e.g. Herbicide treatment" value={value.clientLabel}
+          onChange={e => set({ clientLabel: e.target.value })} /></label>
+      <label className="field narrow-field"><span>Markup %</span>
+        <input type="number" min="0" step="1" value={value.markupPct || ''}
+          onChange={e => set({ markupPct: Math.max(0, Number(e.target.value) || 0) })} /></label>
+      <label className="field narrow-field"><span>Service fee</span>
+        <input type="number" min="0" step="0.01" placeholder="0.00" value={value.serviceFee || ''}
+          onChange={e => set({ serviceFee: Math.max(0, Number(e.target.value) || 0) })} /></label>
     </div>
   )
 }
@@ -1181,9 +1221,9 @@ function MeasureAssignFields({
 /**
  * "Track by quantity" and the fields behind it.
  *
- * Everything priced here is a DEFAULT. The markup, fee and name that actually
- * reach an invoice are chosen per job in the assign drawer, so a container
- * carries your usual terms rather than fixed ones.
+ * Only about counting — how big the container is and how much of it is left.
+ * Pricing lives on the expense itself, because a one-off purchase deserves a
+ * markup just as much as a jug does.
  */
 function MeasureFields({
   amount, cur, value, existing = false, onChange,
@@ -1212,7 +1252,7 @@ function MeasureFields({
       <label className="check-field">
         <input type="checkbox" checked={!!m}
           onChange={e => onChange(e.target.checked
-            ? { unit: '', holds: 0, qty: 0, clientLabel: '', markupPct: DEFAULT_MARKUP_PCT, serviceFee: 0, usual: 1 }
+            ? { unit: '', holds: 0, qty: 0, usual: 1 }
             : null)} />
         <span>Track by quantity</span>
         <span className="hint tiny">— use a bit at a time, bill each job for what it used</span>
@@ -1234,22 +1274,10 @@ function MeasureFields({
               <input type="number" min="1" step="1" value={m.usual || ''}
                 onChange={e => set({ usual: num(e.target.value) })} /></label>
           </div>
-          <div className="field-row">
-            <label className="field"><span>Name on invoice</span>
-              <input placeholder="e.g. Herbicide treatment" value={m.clientLabel}
-                onChange={e => set({ clientLabel: e.target.value })} /></label>
-            <label className="field narrow-field"><span>Markup %</span>
-              <input type="number" min="0" step="1" value={m.markupPct || ''}
-                onChange={e => set({ markupPct: Math.max(0, Number(e.target.value) || 0) })} /></label>
-            <label className="field narrow-field"><span>Service fee</span>
-              <input type="number" min="0" step="0.01" placeholder="0.00" value={m.serviceFee || ''}
-                onChange={e => set({ serviceFee: Math.max(0, Number(e.target.value) || 0) })} /></label>
-          </div>
           <p className="hint tiny">
             {perUnit > 0
-              ? <>Costs you {formatMoney(perUnit, cur)} per {m.unit.trim() || 'unit'}. These are
-                  starting points — the markup, fee and name are yours to change on every job,
-                  and clients never see what you paid.</>
+              ? <>Costs you {formatMoney(perUnit, cur)} per {m.unit.trim() || 'unit'}. Clients never
+                  see that, or the count once a service fee is involved.</>
               : <>Enter what it holds to see your cost per unit.</>}
           </p>
         </>

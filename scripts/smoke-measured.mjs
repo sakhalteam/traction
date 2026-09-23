@@ -150,8 +150,8 @@ await page.waitForTimeout(500)
 let s = await readState()
 const legacy = s.expenses.find(x => x.id === 'g1')
 check('A legacy per-unit price converts to the markup that reproduces it',
-  Math.abs(legacy.measure.markupPct - 777) < 0.5 && legacy.measure.serviceFee === 0,
-  JSON.stringify(legacy.measure))
+  Math.abs(legacy.markupPct - 777) < 0.5 && legacy.serviceFee === 0,
+  JSON.stringify([legacy.markupPct, legacy.serviceFee, legacy.clientLabel]))
 const mangled = page.locator('.group-shelf li', { hasText: 'Mangled' })
 check('A mangled measure renders as a countable container',
   (await mangled.locator('.measure-tag').innerText()).includes('0 of 1 scoop left'),
@@ -164,12 +164,12 @@ await form.locator('input[placeholder="0.00"]').first().fill('36.49')
 await form.locator('.check-field input').check()
 await form.locator('input[placeholder="fl oz"]').fill('fl oz')
 await form.locator('input[placeholder="32"]').fill('32')
-await form.locator('input[placeholder="e.g. Herbicide treatment"]').fill('Herbicide treatment')
+await form.locator('.pricing-fields input[placeholder^="optional"]').fill('Herbicide treatment')
 await page.waitForTimeout(200)
 check('The container form shows cost per unit',
   (await form.locator('.measure-fields').innerText()).includes('$1.14 per fl oz'))
 check('Markup defaults to 20% and is editable',
-  (await form.locator('.measure-fields input[step="1"]').last().inputValue()) === '20')
+  (await form.locator('.pricing-fields input[step="1"]').inputValue()) === '20')
 await form.locator('button', { hasText: 'Log expense' }).click()
 await page.waitForTimeout(400)
 
@@ -177,8 +177,8 @@ s = await readState()
 let jug = s.expenses.find(x => x.label === 'Crossbow 1qt')
 check('The jug keeps what was PAID as its amount', jug?.amount === 36.49, String(jug?.amount))
 check('The jug is a full container carrying default terms',
-  jug?.clientId === null && jug?.measure?.qty === 32 && jug?.measure?.markupPct === 20,
-  JSON.stringify(jug?.measure))
+  jug?.clientId === null && jug?.measure?.qty === 32 && jug?.markupPct === 20,
+  JSON.stringify([jug?.measure, jug?.markupPct]))
 const jugRow = page.locator('.group-shelf li', { hasText: 'Crossbow' })
 check('The shelf row says how much is left',
   (await jugRow.locator('.measure-tag').innerText()).includes('32 of 32 fl oz left'))
@@ -209,10 +209,11 @@ jug = s.expenses.find(x => x.label === 'Crossbow 1qt' && x.clientId === null)
 const dose = s.expenses.find(x => x.label === 'Crossbow 1qt' && x.clientId === 'c1')
 check('The container is left with 30 fl oz', jug?.measure?.qty === 30, JSON.stringify(jug?.measure))
 check('The drawn piece freezes qty, markup and fee',
-  dose?.measure?.qty === 2 && dose?.measure?.markupPct === 30 && dose?.measure?.serviceFee === 7.04,
-  JSON.stringify(dose?.measure))
+  dose?.measure?.qty === 2 && dose?.markupPct === 30 && dose?.serviceFee === 7.04,
+  JSON.stringify([dose?.measure?.qty, dose?.markupPct, dose?.serviceFee]))
 check('The container keeps its own defaults, unchanged by the job',
-  jug?.measure?.markupPct === 20 && jug?.measure?.serviceFee === 0, JSON.stringify(jug?.measure))
+  jug?.markupPct === 20 && jug?.serviceFee === 0,
+  JSON.stringify([jug?.markupPct, jug?.serviceFee]))
 check('The cost splits to the cent',
   dose?.amount === 2.28 && jug?.amount === 34.21 && Math.round((dose.amount + jug.amount) * 100) === 3649,
   String(dose?.amount) + ' + ' + String(jug?.amount))
@@ -230,8 +231,8 @@ await page.waitForTimeout(400)
 s = await readState()
 const blades = s.expenses.find(x => x.label === 'Pruning blades 5pk' && x.clientId === 'c2')
 check('Blades cost $18 and carry no fee',
-  blades?.amount === 18 && blades?.measure?.serviceFee === 0,
-  JSON.stringify([blades?.amount, blades?.measure]))
+  blades?.amount === 18 && !blades?.serviceFee && blades?.markupPct === 20,
+  JSON.stringify([blades?.amount, blades?.markupPct, blades?.serviceFee]))
 
 // ---- 5. Invoice Patrick --------------------------------------------------
 await page.locator('.tab', { hasText: 'Invoices' }).click()
@@ -286,7 +287,7 @@ const ed = page.locator('.entry-row.editing')
 await ed.locator('.check-field input').check()
 await ed.locator('input[placeholder="fl oz"]').fill('roof')
 await ed.locator('input[placeholder="32"]').fill('5')
-await ed.locator('input[placeholder="e.g. Herbicide treatment"]').fill('Roof zinc treatment')
+await ed.locator('.pricing-fields input[placeholder^="optional"]').fill('Roof zinc treatment')
 await page.waitForTimeout(200)
 await ed.locator('button', { hasText: 'Save' }).click()
 await page.waitForTimeout(400)

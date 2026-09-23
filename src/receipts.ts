@@ -219,3 +219,42 @@ export async function receiptUrl(
 export async function deleteReceipt(supabase: SupabaseClient, path: string): Promise<void> {
   await supabase.storage.from(RECEIPT_BUCKET).remove([path])
 }
+
+/**
+ * Stored objects this user owns that no live expense, entry or setting points
+ * at any more.
+ *
+ * Deleting an expense deliberately LEAVES its photo behind, because undo can
+ * bring the expense back and a row pointing at a deleted image is worse than a
+ * few stray files. This is the other half of that bargain: a sweep you run when
+ * you mean to, rather than a cleanup that races your own second thoughts.
+ *
+ * Only ever looks inside `<uid>/`, so it cannot propose deleting anything that
+ * is not yours even if the bucket held other people's folders.
+ */
+export async function findOrphanReceipts(
+  supabase: SupabaseClient, inUse: Set<string>,
+): Promise<string[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const orphans: string[] = []
+  // Storage lists a page at a time; a few hundred receipts is several pages.
+  for (let offset = 0; ; offset += 100) {
+    const { data, error } = await supabase.storage
+      .from(RECEIPT_BUCKET)
+      .list(user.id, { limit: 100, offset })
+    if (error || !data || data.length === 0) break
+    for (const obj of data) {
+      const path = `${user.id}/${obj.name}`
+      if (!inUse.has(path)) orphans.push(path)
+    }
+    if (data.length < 100) break
+  }
+  return orphans
+}
+
+/** Remove a batch of objects. Best-effort, same as `deleteReceipt`. */
+export async function deleteReceipts(supabase: SupabaseClient, paths: string[]): Promise<void> {
+  if (paths.length === 0) return
+  await supabase.storage.from(RECEIPT_BUCKET).remove(paths)
+}

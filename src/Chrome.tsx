@@ -57,6 +57,7 @@ const MORE_TABS: View[] = ['services', 'reports', 'settings', 'help']
 
 export function Chrome({
   view, onNav, user, onLogin, onLogout, cloudStatus, running,
+  canUndo, canRedo, onUndo, onRedo,
 }: {
   view: View
   onNav: (v: View) => void
@@ -65,6 +66,10 @@ export function Chrome({
   onLogout: () => void
   cloudStatus: CloudStatus
   running: boolean
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
 
@@ -105,6 +110,17 @@ export function Chrome({
         </nav>
 
         <div className="chrome-right">
+          {/* Absent until there is something to undo, so a fresh load carries no
+              promise the session cannot keep — this stack starts empty and
+              knows nothing about what happened before the tab opened. */}
+          {(canUndo || canRedo) && (
+            <span className="history-btns">
+              <button className="icon-btn" disabled={!canUndo} onClick={onUndo}
+                title="Undo the last change (Ctrl+Z) — this device, this session">↶</button>
+              <button className="icon-btn" disabled={!canRedo} onClick={onRedo}
+                title="Redo (Ctrl+Y)">↷</button>
+            </span>
+          )}
           {user && cloudStatus !== 'idle' && (
             <span className={`cloud-indicator ${cloudStatus}`}>
               {cloudStatus === 'saving' && 'syncing…'}
