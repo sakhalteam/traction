@@ -756,17 +756,6 @@ export function siblingsOf(x: Expense, all: Expense[]): Expense[] {
   return all.filter(o => o.id !== x.id && o.lineageId === x.lineageId && !isAbsorbed(o))
 }
 
-/**
- * How many live expenses still point at a stored photo.
- *
- * Splitting shares one receipt across every piece, so deleting a piece must not
- * delete the image out from under its siblings — only the last one out turns
- * off the light.
- */
-export function receiptRefCount(path: string, all: Expense[]): number {
-  return all.filter(x => x.receiptPath === path && !isAbsorbed(x)).length
-}
-
 // ---- Client names --------------------------------------------------------
 
 /** The fields every name-rendering helper needs. */
