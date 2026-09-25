@@ -34,7 +34,7 @@ Files you'll care about:
 ```bash
 npm run dev                          # localhost:5173/traction/
 node scripts/smoke.mjs               # 139 checks — the whole app
-node scripts/smoke-measured.mjs      # 31 — track by quantity, per-job pricing
+node scripts/smoke-measured.mjs      # 32 — track by quantity, per-job pricing
 node scripts/smoke-undo.mjs          # 18 — undo/redo
 node scripts/smoke-comp.mjs          # 15 — comps and trades on invoices
 npx tsc -b                           # ALWAYS before committing — deploy fails on TS errors
@@ -56,10 +56,13 @@ Edge via `channel: 'msedge'`.
 2. **Whole-object merge, so new fields ride along free** — but a field only one device
    knows about will lose to the cloud's copy of that record wholesale. Never split one
    fact across two records.
-3. **Mobile rows are a named CSS grid.** In the `max-width: 860px` block
-   (`src/index.css`), `.entry-row` becomes `grid-template-areas: "swatch main" …`.
-   **Any new child of `.entry-row` needs an explicit grid placement** or it auto-places
-   into a ~100px column and renders as a squeezed mess. This bit us twice.
+3. **Mobile time-entry rows are a named CSS grid.** In the phone block of `src/index.css`,
+   `.entry-row:not(.xrow)` becomes `"swatch main main" / "swatch figures actions"`.
+   **Any new child needs an explicit grid placement** or it auto-places into a column it
+   then widens. This bit us three times — the last was the money line sharing the colour
+   bar's column and leaving a 250px empty square beside every title. Expense rows are
+   `.xrow` and lay themselves out as a folded line instead; tests reach their buttons
+   through an `openRow` helper, and drags through the `.drag-handle` grip.
 4. **Sticky header + fixed tab bar cover anything scrolled to a viewport edge.** Fixed
    globally with `scroll-padding` on `html`. If you add more fixed chrome, update it.
 5. **StrictMode runs every `setState` updater twice.** `mutate` still does its work inside

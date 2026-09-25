@@ -205,9 +205,10 @@ const SECTIONS: HelpSection[] = [
       },
       {
         title: 'Drag it off the shelf to use it',
-        body: <>Drag a shelf item down onto <strong>Ready to bill</strong> and traction asks
-          whose job it went to. On a phone, <strong>hold it for a moment first</strong> —
-          moving straight away scrolls the page instead, the way it should. Assigning is not
+        body: <>Every expense sits folded to one line — tap it to open its details and
+          buttons. To move one, grab the <strong>⠿ grip</strong> on its left edge and drag it
+          down onto <strong>Ready to bill</strong>; traction asks whose job it went to. Only the
+          grip drags, so the rest of the row still scrolls and taps normally. Assigning is not
           invoicing: it still waits under that client until you build one.</>,
       },
       {

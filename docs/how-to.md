@@ -183,11 +183,14 @@ another way, sit on the shelf, or be plain overhead:
   toggle independently. They show exactly which expenses make up each number, with the
   actions for each. Anything still waiting on a decision is always on screen — History
   below only holds what has already been dealt with.
-- **Drag material off the shelf to use it.** Drop a shelf item on *Ready to bill* and
-  traction asks whose job it went to. On a phone, **hold it a moment before moving** —
-  move straight away and you scroll the page, which is what a finger should do by
-  default. Assigning a client is **not** invoicing: it waits under that client until you
-  build one.
+- **Rows are folded.** Every expense shows one line — name, the one fact worth a glance
+  (what's left in a container, whose job it is, which invoice), and the money. Tap it to
+  open the details and the buttons.
+- **Drag material off the shelf to use it.** Grab the **⠿ grip** on the left of a row and
+  drop it on *Ready to bill*; traction asks whose job it went to. Only the grip drags —
+  the rest of the row scrolls and taps like normal, which is what stopped a held finger
+  from selecting text on the way to a drag. Assigning a client is **not** invoicing: it
+  waits under that client until you build one.
 - **Drag it back to the shelf** to take the client off again. If it had already reached
   an invoice you get asked first, and the answer depends on where that invoice is:
   a **draft** changes freely, a **sent** one warns you and offers to void the whole

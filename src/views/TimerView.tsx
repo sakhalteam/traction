@@ -9,7 +9,7 @@ import {
   type PaymentState,
 } from '../store'
 import { useNow } from '../useNow'
-import { ClientLabel } from '../Chrome'
+import { ClientLabel, navIcon } from '../Chrome'
 import { DurationFields, DurationToggle } from './DurationFields'
 import { EntryRow } from './EntryRow'
 import { Picker } from './Picker'
@@ -418,7 +418,12 @@ export function TimerView({
                       </span>
                     </button>
                     <span className="nudge-amt">{formatMoney(c.amount, state.settings.currency)}</span>
-                    <button className="btn nudge-go" onClick={() => onGoInvoice(c.id)}>Invoice →</button>
+                    {/* The tab bar's own invoice glyph, so the button reads as "take
+                        me there" without a label eating a whole line on a phone. */}
+                    <button className="btn nudge-go" onClick={() => onGoInvoice(c.id)}
+                      title={`Invoice ${c.name}`} aria-label={`Invoice ${c.name}`}>
+                      {navIcon('invoices')}
+                    </button>
                   </div>
                   {open && (
                     <ul className="nudge-entries">
@@ -508,7 +513,7 @@ export function TimerView({
           const dayState = rollupPaymentState(entries, state.invoices)
           const mixed = isMixedPayment(entries, state.invoices)
           return (
-            <div key={date} className="panel">
+            <div key={date} className="panel day-panel">
               <div className="panel-head">
                 <h3>{date === todayISO() ? 'Today' : formatDate(date)} · {formatDuration(daySecs, durationStyle)}</h3>
                 <span

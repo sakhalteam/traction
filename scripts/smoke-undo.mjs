@@ -73,6 +73,9 @@ check('No arrows before you have done anything',
 await page.locator('.tab, .nav-btn').filter({ hasText: 'Expenses' }).first().click()
 await page.waitForTimeout(500)
 const row = page.locator('.group-shelf li', { hasText: 'Spare timber' })
+// Expense rows sit folded to one line; the buttons appear once it is opened.
+await row.locator('.xrow-line').click()
+await page.waitForTimeout(150)
 await row.locator('.icon-btn.danger[title="Delete"]').click()
 await page.waitForTimeout(250)
 await row.locator('.confirm-del').click()

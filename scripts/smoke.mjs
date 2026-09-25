@@ -105,6 +105,15 @@ await page.waitForTimeout(600)
 
 const readState = () => page.evaluate(() => JSON.parse(localStorage.getItem('traction-state')))
 
+/** Expense rows sit folded to one line; their buttons appear once opened. */
+const openRow = async row => {
+  if (!(await row.evaluate(n => n.classList.contains('expanded')))) {
+    await row.locator('.xrow-line').click()
+    await page.waitForTimeout(150)
+  }
+  return row
+}
+
 // ---- 1. Start a timer from the "Again" button ----------------------------
 check('Again grid caps at four unique jobs',
   await page.locator('.again-btn').count() === 4, `got ${await page.locator('.again-btn').count()}`)
@@ -580,7 +589,7 @@ check('And opens again', (await page.locator('.open-expenses li').count()) === 3
 
 // Settle one without ever invoicing it — the "traded it / they handed me cash"
 // case that previously had no exit but deleting the record.
-await page.locator('.open-expenses li', { hasText: 'Mulch' })
+await (await openRow(page.locator('.open-expenses li', { hasText: 'Mulch' })))
   .locator('.icon-btn[title="Settle without invoicing"]').click()
 await page.waitForTimeout(400)
 await page.locator('.row-drawer .chip', { hasText: 'Traded' }).click()
@@ -598,7 +607,7 @@ check('It leaves the open lists entirely',
   `${await page.locator('.open-expenses li').count()} open rows left`)
 
 // Split: charge for half the lumber, shelve the offcut.
-await page.locator('.open-expenses li', { hasText: 'Lumber' })
+await (await openRow(page.locator('.open-expenses li', { hasText: 'Lumber' })))
   .locator('.icon-btn[title="Charge only part of this"]').click()
 await page.waitForTimeout(400)
 await page.locator('.row-drawer input[type="number"]').fill('38.52')
@@ -628,7 +637,7 @@ check('Both open lists show at once',
   `${await page.locator('.open-expenses li').count()} rows across both groups`)
 
 // Assign a shelf item to whoever ended up using it.
-await page.locator('.open-expenses li', { hasText: 'Spare timber' })
+await (await openRow(page.locator('.open-expenses li', { hasText: 'Spare timber' })))
   .locator('.icon-btn[title="Assign to a client"]').click()
 await page.waitForTimeout(400)
 await page.locator('.row-drawer .chip').first().click()
@@ -656,7 +665,10 @@ const dragOnto = async (from, to) => {
   // the drag. Doing it in the page keeps the geometry self-consistent, and both
   // ends are brought on screen together first — a drop point below the fold
   // resolves to nothing at all.
-  const fh = await from.elementHandle()
+  // Drags start from a row's grip, never from the row itself — the whole row
+  // being the grip is what made a held finger select text on iOS.
+  const grip = from.locator('.drag-handle:not(.none)')
+  const fh = await ((await grip.count()) ? grip.first() : from).elementHandle()
   const th = await to.elementHandle()
   const outcome = await page.evaluate(([f, t]) => {
     // The usable band is what neither the sticky header nor the fixed tab bar
@@ -771,7 +783,7 @@ check('The stale "remainder unused" note is gone',
   !/remainder unused/.test(wholeLumber[0].note), wholeLumber[0].note)
 
 // Cutting up material you have not attributed yet — the common case.
-await page.locator('.group-shelf li', { hasText: 'Lumber' })
+await (await openRow(page.locator('.group-shelf li', { hasText: 'Lumber' })))
   .locator('.icon-btn[title="Cut this into pieces"]').click()
 await page.waitForTimeout(400)
 await page.locator('.split-equal .chip').nth(1).click()   // 3 equal pieces
@@ -824,7 +836,8 @@ check('An unsettled one still is', offered.join(' ').includes('Lumber'))
 await page.locator('.tab', { hasText: 'Expenses' }).click()
 await page.waitForTimeout(600)
 const expensesBefore = (await readState()).expenses.length
-await page.locator('.open-expenses li').first().locator('.icon-btn.danger').click()
+await (await openRow(page.locator('.open-expenses li').first()))
+  .locator('.icon-btn.danger[title="Delete"]').click()
 await page.waitForTimeout(400)
 check('One tap on an expense ✕ deletes nothing',
   (await readState()).expenses.length === expensesBefore)

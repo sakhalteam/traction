@@ -1420,47 +1420,40 @@ textarea { resize: vertical; }
   .auth-name { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cloud-indicator { font-size: 0.7rem; }
 
-  /* Entry rows go two-line: identity on top, money and actions below, so the
-     buttons get room to be 42px without crushing the description. */
-  .entry-row:not(.editing) {
+  /* Time entry rows go two-line: identity on top, money and actions below, so
+     the buttons get room to be 42px without crushing the description.
+
+     The colour bar spans BOTH lines in a column of its own. It used to share a
+     column with the money line, so "4h 6m $205.00" set that column's width and
+     the bar sat alone in a ~250px-wide empty square beside the title. */
+  .entry-row:not(.editing):not(.xrow) {
     display: grid;
-    grid-template-columns: auto 1fr;
-    grid-template-areas: "swatch main" "figures actions";
-    align-items: center; column-gap: 10px; row-gap: 4px;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "swatch main main" "swatch figures actions";
+    align-items: center; column-gap: 10px; row-gap: 2px;
   }
-  .entry-row:not(.editing) .entry-swatch { grid-area: swatch; align-self: stretch; height: auto; min-height: 30px; }
-  .entry-row:not(.editing) .entry-main { grid-area: main; }
-  .entry-row:not(.editing) .entry-figures {
-    grid-area: figures; flex-direction: row; align-items: baseline; gap: 10px; justify-self: start;
+  .entry-row:not(.editing):not(.xrow) .entry-swatch {
+    grid-area: swatch; align-self: stretch; height: auto; min-height: 30px; width: 5px;
   }
-  .entry-row:not(.editing) .entry-actions {
+  .entry-row:not(.editing):not(.xrow) .entry-main { grid-area: main; }
+  .entry-row:not(.editing):not(.xrow) .entry-figures {
+    grid-area: figures; flex-direction: row; align-items: baseline; gap: 8px; justify-self: start;
+  }
+  .entry-row:not(.editing):not(.xrow) .entry-actions {
     grid-area: actions; justify-self: end; gap: 0;
     /* A last-resort safety net for the "Really delete?" confirm, which refuses
        to shrink: without somewhere to wrap it overflows its cell and ends up
        sitting underneath the button beside it, where it cannot be tapped. */
     flex-wrap: wrap; justify-content: flex-end; row-gap: 4px;
   }
-  /* An expense row carries up to six controls — assign, split and settle on top
-     of receipt, edit and delete — which is 252px of buttons trying to fit in a
-     192px column beside the amount. Shrinking them below a thumb is not an
-     option, and letting them wrap strands two on a line of their own, so the
-     amount takes a line and the controls take the full width under it. */
-  .entry-row:not(.editing):has(.expense-badge) {
-    grid-template-areas: "swatch main" "figures figures" "actions actions";
-  }
-  .entry-row:not(.editing) .entry-photos { grid-column: 1 / -1; padding-left: 0; }
-  /* An expense row leads with its category badge where a time entry leads with
-     a colour swatch — same slot, different mark. Without this it auto-places
-     into a row of its own and shunts everything below it. */
-  .entry-row:not(.editing) .expense-badge { grid-area: swatch; align-self: center; }
+  .entry-row:not(.editing):not(.xrow) .entry-photos { grid-column: 1 / -1; padding-left: 0; }
   /* A drawer is a full-width line UNDER the row. The flex layout gets that from
      `flex: 1 0 100%`, which means nothing to a grid — so an un-placed drawer
      lands in a named cell and renders as a ~100px column of stacked buttons,
      with its Settle button pushed hundreds of pixels down the page. */
-  .entry-row:not(.editing) .row-drawer { grid-column: 1 / -1; }
+  .entry-row:not(.editing):not(.xrow) .row-drawer { grid-column: 1 / -1; }
 
   .nudge-row { gap: 8px; }
-  .nudge-row .btn { width: 100%; }
   .nudge-btns .btn { width: auto; }
   .nudge-amt { font-size: 1rem; }
 
@@ -1506,17 +1499,20 @@ textarea { resize: vertical; }
 }
 .nudge-who { grid-area: who; }
 .nudge-amt { grid-area: amount; margin-left: 0; }
-.nudge-go { grid-area: go; }
+.nudge-go {
+  grid-area: go; width: 42px; height: 42px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--sky);
+}
+.nudge-go svg { width: 20px; height: 20px; }
 .nudge-more { width: 100%; margin-top: 8px; }
 
 @media (max-width: 640px) {
-  /* Name and amount share the top line; the action gets a full-width row so it
-     is a comfortable target rather than a squeezed sliver. */
+  /* One line per client: who, how much, and a square button to go and bill it.
+     It used to give the button a full-width row of its own, which tripled the
+     height of every nudge for a word the tab bar already says with an icon. */
   .nudge-row {
-    grid-template-columns: 1fr auto;
-    grid-template-areas:
-      "who amount"
-      "go  go";
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas: "who amount go";
   }
 }
 
@@ -1530,10 +1526,18 @@ textarea { resize: vertical; }
     scroll-snap-type: x proximity;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    /* Bleed to the panel edges so a half-visible chip signals "more this way". */
-    margin: 0 -14px 14px; padding: 2px 14px 6px;
+    /* Inside the panel's padding, lined up with the grid above it. It used to
+       bleed to the panel edge so a half-visible chip said "more this way", but
+       the panel's border then sliced the chip in half, which read as broken
+       rather than as a hint. A fade says the same thing without the damage. */
+    margin: 0 0 12px; padding: 2px 0 4px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   }
   .resume-chips::-webkit-scrollbar { display: none; }
+  /* Room to scroll the last chip clear of the fade. Padding on a scrolling flex
+     container is dropped at the far end in some engines; a spacer never is. */
+  .resume-chips::after { content: ""; flex: 0 0 24px; }
   .chip-pair { flex: none; scroll-snap-align: start; }
   .chip-pair .chip { white-space: nowrap; }
 }
@@ -1656,4 +1660,164 @@ textarea { resize: vertical; }
   .meta-grid { justify-content: start; }
   .meta-grid dd { text-align: left; }
   .invoice-meta h1 { font-size: 1.7rem; letter-spacing: 0.22em; }
+}
+
+/* ==========================================================================
+   Form controls iOS draws its own way
+   ========================================================================== */
+
+/* A checkbox inherits the text-input look above — dark fill, padding, rounded
+   border, 100% width — and iOS Safari renders that as a black pebble with a
+   silver rim that never visibly ticks. Drawn from scratch instead, so it looks
+   and behaves the same on every phone. */
+input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none;
+  flex: none; width: 20px; height: 20px; min-width: 20px; padding: 0; margin: 0;
+  display: inline-grid; place-content: center; cursor: pointer;
+  border: 1.5px solid var(--border-strong); border-radius: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  transition: background 0.12s, border-color 0.12s;
+}
+input[type="checkbox"]::before {
+  content: ""; width: 11px; height: 11px; transform: scale(0);
+  transition: transform 0.12s ease-out;
+  background: #04120a;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+input[type="checkbox"]:focus-visible { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25); }
+
+/* iOS gives date and time inputs an intrinsic minimum width wider than a phone
+   column and ignores width: 100% while its native appearance is on, so they
+   pushed out past the edge of their card. Taking the native appearance off is
+   what lets them obey the column; the picker wheel still opens on tap. */
+input[type="date"], input[type="time"], input[type="datetime-local"] {
+  -webkit-appearance: none; appearance: none;
+  display: block; min-width: 0; max-width: 100%; min-height: 40px;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; }
+
+/* ==========================================================================
+   Phone density
+   Everything above was sized for a desk first. On a phone it read as roomy to
+   the point of scrolling past half a screen of padding to reach the next thing,
+   so this pass tightens type and spacing — but never the tap targets, which stay
+   at the 42–44px a thumb needs outdoors.
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* ~12% smaller type everywhere that is sized in rem, which is nearly all of
+     it. Fields stay at 16px (set above) because iOS zooms the page on focus
+     below that — a smaller field is worse than a slightly larger one. */
+  html { font-size: 14px; }
+  .tab { font-size: 10.5px; }
+  .expense-badge { font-size: 0.7rem; }
+
+  .content { padding: 10px 10px 80px; }
+  .view { gap: 12px; }
+  .panel { padding: 12px; }
+  .panel-head { margin-bottom: 8px; }
+  .field-row { gap: 8px; margin-bottom: 8px; }
+  .field { gap: 4px; }
+
+  /* Timer: the 2x2 grid is the fastest way to start a job, so it stays big
+     enough to hit, just not taller than it needs to be. */
+  .again-grid { gap: 6px; margin-bottom: 10px; }
+  .again-btn { min-height: 56px; padding: 9px 10px; gap: 5px; }
+
+  .nudge-list { gap: 6px; }
+  .nudge-row { padding: 7px 8px 7px 10px; }
+}
+
+/* Time log: one card per day, and the entries in it are rows, not cards inside
+   a card. Two nested bubbles spent 30-odd pixels of padding and border on every
+   entry and made a day of four jobs a full screen tall. */
+@media (max-width: 860px) {
+  .day-panel .panel-head { margin-bottom: 4px; }
+  .day-panel h3 { font-size: 0.98rem; }
+  .day-panel .entry-list { gap: 0; }
+  .day-panel .entry-row:not(.editing) {
+    background: none; border: none; border-radius: 0;
+    border-top: 1px solid var(--border); padding: 8px 0 6px;
+  }
+  .day-panel .entry-row:not(.editing):first-child { border-top: none; padding-top: 2px; }
+  .day-panel .entry-row.live {
+    background: rgba(34, 197, 94, 0.07); border-radius: var(--radius-sm); padding: 8px;
+  }
+}
+
+/* ==========================================================================
+   Folded expense rows (.xrow)
+   One line — grip, what it is, one glanceable fact, the money — and a tap to
+   open the rest. Laid out on its own terms rather than through the time-entry
+   grid above, which is why that grid excludes .xrow.
+   ========================================================================== */
+.entry-row.xrow { display: block; padding: 0; }
+.xrow-line {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 4px 10px 4px 0; cursor: pointer;
+  /* The line is a toggle, not text to copy — and on iOS a held finger on a
+     label otherwise starts a selection. */
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.xrow-label {
+  flex: 1 1 auto; min-width: 0; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The glance keeps its full width and the name gives way instead: "32/32 fl oz"
+   cut to "32/32 fl ..." answers nothing, and the name is still readable from
+   its first few words. Capped so a very long client name cannot take over. */
+.xrow-line > .client-tag, .xrow-line > .measure-tag, .xrow-line > .settled-tag,
+.xrow-line > .invoiced-tag, .xrow-line > .lineage-tag {
+  flex: none; max-width: 42%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.xrow-amt { flex: none; font-weight: 650; font-variant-numeric: tabular-nums; }
+.xrow-caret { flex: none; width: 10px; color: var(--text-faint); font-size: 0.72rem; }
+
+/* The grip. touch-action: none is what makes it safe to lift on the first few
+   pixels of movement — the browser will never try to scroll from here. */
+.drag-handle {
+  flex: none; align-self: stretch; width: 32px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); cursor: grab; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.drag-handle svg { width: 10px; height: 16px; fill: currentColor; }
+.drag-handle:hover { color: var(--text-dim); }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle.none { cursor: default; width: 12px; }
+
+.xrow-body { padding: 0 10px 10px 32px; display: flex; flex-direction: column; gap: 6px; }
+.xrow-body .entry-sub { margin-top: 0; }
+.xrow-body .entry-actions { flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+.xrow-body .row-drawer { margin-top: 2px; }
+.xrow.expanded { border-color: var(--border-strong); }
+
+/* While something is in the air, nothing on the page may start a selection. */
+body.drag-in-flight, body.drag-in-flight * { -webkit-user-select: none !important; user-select: none !important; }
+
+.group-card .entry-list { gap: 4px; padding: 0 6px 6px; }
+
+@media (max-width: 640px) {
+  /* The explanation of billable vs overhead lives in the how-to; on a phone
+     it was six lines between you and the numbers. */
+  .expenses-intro { display: none; }
+
+  /* Three across and actually fitting. minmax(0, 1fr) lets a tile shrink
+     below its content; plain 1fr would not, which is how "Overhead logged"
+     used to run off the right edge of the card. */
+  .ar-summary, .ar-summary.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+  .ar-summary.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ar-tile { padding: 8px 9px; min-width: 0; }
+  .ar-label { font-size: 0.66rem; line-height: 1.25; }
+  .ar-value { font-size: 1.1rem; }
+  .ar-sub { font-size: 0.68rem; line-height: 1.25; }
+  /* The tiles are buttons that open their list; the caption under the number
+     only restated the tile's own label. */
+  .expense-tiles .ar-sub { display: none; }
+  .group-card { margin-top: 8px; }
+  .group-head { padding: 8px 10px; }
 }

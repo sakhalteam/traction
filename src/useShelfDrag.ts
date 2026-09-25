@@ -8,11 +8,12 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
  * on touch at all — and the shelf is used one-handed in somebody's yard far
  * more often than at a desk.
  *
- * The gesture differs by input because the conflict differs. A mouse has
- * nothing else to do, so a few pixels of movement means a drag. A finger's
- * default job inside a scrolling list is to scroll, so a touch has to be HELD
- * first: move early and it stays a scroll, hold still and the item lifts. Once
- * lifted, page scrolling is suppressed until the finger comes up.
+ * `dragHandle` is spread onto a small grip, never onto a whole row. The row
+ * used to be the grip, which meant a finger had to HOLD before lifting (so a
+ * swipe could still scroll the list), and on iOS that same hold also started a
+ * text selection on the row's label: one gesture, two things happening. A
+ * grip is marked `touch-action: none` and has no text, so it is never a scroll
+ * and never a selection — any pointer lifts after a few pixels of movement.
  */
 
 /** Where a dragged expense can be let go. */
@@ -33,12 +34,9 @@ export interface DragState {
 
 const IDLE: DragState = { id: null, x: 0, y: 0, target: null }
 
-/** How long a finger must stay put before the item lifts instead of scrolling. */
-const HOLD_MS = 350
-/** How far a finger may stray during that hold before we call it a scroll. */
-const HOLD_SLOP = 10
-/** How far a mouse moves before a press becomes a drag. */
-const MOUSE_SLOP = 5
+/** How far a pointer moves before a press on the grip becomes a drag. A tap is
+ *  not a drag, and this is what tells the two apart. */
+const LIFT_SLOP = 5
 
 function targetAt(x: number, y: number, draggingId: string): DropTarget | null {
   const el = document.elementFromPoint(x, y)
@@ -67,19 +65,9 @@ export function useShelfDrag(onDrop: (id: string, target: DropTarget) => void) {
     startX: number
     startY: number
     lifted: boolean
-    touch: boolean
-    holdTimer: number | null
   } | null>(null)
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
-
-  const clearHold = () => {
-    const g = gesture.current
-    if (g?.holdTimer !== null && g?.holdTimer !== undefined) {
-      window.clearTimeout(g.holdTimer)
-      g.holdTimer = null
-    }
-  }
 
   /**
    * The live drag, mirrored outside React state.
@@ -95,7 +83,6 @@ export function useShelfDrag(onDrop: (id: string, target: DropTarget) => void) {
   const end = useCallback((commit: boolean) => {
     const g = gesture.current
     const { id, target } = latest.current
-    clearHold()
     gesture.current = null
     commitDrag(IDLE)
     if (commit && g?.lifted && id && target) onDropRef.current(id, target)
@@ -108,7 +95,13 @@ export function useShelfDrag(onDrop: (id: string, target: DropTarget) => void) {
     // reliably keeps the page still while something is in the air.
     const block = (e: TouchEvent) => e.preventDefault()
     document.addEventListener('touchmove', block, { passive: false })
-    return () => document.removeEventListener('touchmove', block)
+    // Nothing on the page may start selecting while an item is in the air — a
+    // finger dragged across a label is a drag, not a highlight.
+    document.body.classList.add('drag-in-flight')
+    return () => {
+      document.removeEventListener('touchmove', block)
+      document.body.classList.remove('drag-in-flight')
+    }
   }, [drag.id])
 
   useEffect(() => {
@@ -120,13 +113,10 @@ export function useShelfDrag(onDrop: (id: string, target: DropTarget) => void) {
       const far = Math.hypot(dx, dy)
 
       if (!g.lifted) {
-        // A finger that wanders before the hold completes was always scrolling.
-        if (g.touch) {
-          if (far > HOLD_SLOP) { clearHold(); gesture.current = null }
-          return
-        }
-        if (far < MOUSE_SLOP) return
+        if (far < LIFT_SLOP) return
         g.lifted = true
+        // Confirms the lift in the hand, since a finger has no cursor to change.
+        if (e.pointerType !== 'mouse') navigator.vibrate?.(12)
       }
       commitDrag({ id: g.id, x: e.clientX, y: e.clientY, target: targetAt(e.clientX, e.clientY, g.id) })
     }
@@ -146,27 +136,14 @@ export function useShelfDrag(onDrop: (id: string, target: DropTarget) => void) {
     }
   }, [end])
 
-  /** Spread onto whatever should be draggable. */
+  /** Spread onto the grip — see the note at the top of this file. */
   const dragHandle = useCallback((id: string) => ({
     onPointerDown: (e: ReactPointerEvent) => {
-      // Left button only, and never from a control — the row is covered in
-      // buttons and a tap on one of them must stay a tap.
       if (e.button !== 0) return
-      if ((e.target as HTMLElement).closest('button, input, select, textarea, a')) return
-      const touch = e.pointerType !== 'mouse'
-      const g = {
-        id, startX: e.clientX, startY: e.clientY, lifted: !touch, touch, holdTimer: null as number | null,
-      }
-      gesture.current = g
-      if (touch) {
-        g.holdTimer = window.setTimeout(() => {
-          if (gesture.current !== g) return
-          g.lifted = true
-          // Confirms the lift in the hand, since there is no cursor to change.
-          navigator.vibrate?.(12)
-          commitDrag({ id, x: g.startX, y: g.startY, target: null })
-        }, HOLD_MS)
-      }
+      // Keeps iOS from treating the press as the start of a text selection or
+      // a long-press callout on the way to becoming a drag.
+      e.preventDefault()
+      gesture.current = { id, startX: e.clientX, startY: e.clientY, lifted: false }
     },
   }), [])
 

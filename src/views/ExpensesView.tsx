@@ -192,13 +192,13 @@ export function ExpensesView({
     <div className="view">
       <div className="panel">
         <h2>Expenses</h2>
-        <p className="hint">
+        <p className="hint expenses-intro">
           Track costs as you incur them. <strong>Billable</strong> ones can go on a client's
           invoice, be settled another way (cash, a trade, a write-off), or sit on the
           shelf until you know whose job they belong to. <strong>Overhead</strong> stays
           off invoices and feeds your profit in Reports.
         </p>
-        <div className="ar-summary three">
+        <div className="ar-summary three expense-tiles">
           <ExpenseTile
             label="Ready to bill" amount={billedSum(byState.billable)} cur={cur}
             sub={`${byState.billable.length} on a client, not yet invoiced`}
@@ -460,6 +460,15 @@ function ExpenseRow({
   mergeTargetId: string | null
 }) {
   const [editing, setEditing] = useState(false)
+  /**
+   * Rows sit folded to one line — what it is, the one fact worth a glance, and
+   * the money — and open on a tap to show everything else and the buttons.
+   *
+   * A shelf of five things used to be five cards each a third of a phone tall,
+   * mostly buttons you use once per item. Folded, the whole shelf fits on a
+   * screen, which is the point of a shelf: seeing what you have.
+   */
+  const [open, setOpen] = useState(false)
   /** Which inline action drawer is open: settle, assign or split. */
   const [drawer, setDrawer] = useState<'settle' | 'assign' | 'split' | null>(null)
   /**
@@ -487,9 +496,6 @@ function ExpenseRow({
   }
 
   const toggle = (d: 'settle' | 'assign' | 'split') => setDrawer(v => v === d ? null : d)
-  // The row grows a second line whenever anything renders below it, including
-  // the quiet "put on an invoice" shortcut.
-  const hasDrawer = !!drawer || st === 'billable'
 
   const absorbed = isAbsorbed(expense)
   const draggable = isOpenExpense(expense) || st === 'invoiced'
@@ -501,153 +507,188 @@ function ExpenseRow({
   const partialReceipt = !!expense.receiptPath && siblings.some(s => s.receiptPath === expense.receiptPath)
   const m = expense.measure ?? null
 
+  // The single fact worth seeing without opening the row. Everything else
+  // waits behind the tap.
+  const glance = absorbed
+    ? <span className="client-tag general">Merged</span>
+    : expense.settled
+      ? <span className="settled-tag">{SETTLED_LABELS[expense.settled.how]}</span>
+      : invoiced
+        ? <span className="invoiced-tag">{invNum ?? 'invoiced'}</span>
+        : !expense.billable
+          ? <span className="client-tag general">Overhead</span>
+          : m && st === 'shelf'
+            ? <span className="measure-tag" title={`${m.qty} of ${m.holds} ${m.unit} left`}>{m.qty}/{m.holds} {m.unit}</span>
+            : st === 'shelf'
+              ? null
+              : <ClientLabel name={clientName} color={clientColor(client)} />
+  // On a client, priced material shows what they'll be charged — the number
+  // "ready to bill" adds up. On the shelf it is what you paid: nobody owes it.
+  const shown = expense.clientId && isPriced(expense) ? billedAmount(expense) : expense.amount
+  const flip = () => {
+    if (open) { setDrawer(null); setConfirmDel(false) }
+    setOpen(v => !v)
+  }
+
   return (
     <li
       className={[
-        'entry-row',
-        hasDrawer ? 'has-drawer' : '', drawer ? 'drawer-open' : '',
+        'entry-row xrow', open ? 'expanded' : 'collapsed',
+        drawer ? 'drawer-open' : '',
         st === 'shelf' ? 'on-shelf' : '',
         absorbed ? 'absorbed' : '',
         draggingId === expense.id ? 'is-dragging' : '',
         mergeTargetId === expense.id ? 'merge-target' : '',
-        draggable ? 'draggable' : '',
       ].filter(Boolean).join(' ')}
       // Only a piece with living siblings can be merged into, so only those
       // announce themselves as a target — dropping onto anything else is a miss.
       {...(mark && !expense.invoiceId ? { 'data-drop': 'merge', 'data-drop-id': expense.id } : {})}
-      {...(draggable ? dragHandle(expense.id) : {})}
     >
-      <span className={`expense-badge ${expense.billable ? 'billable' : 'overhead'}`}>{expense.category}</span>
-      <div className="entry-main">
-        <div className="entry-title">{expense.label || 'Expense'}
-          {expense.note && <span className="entry-note"> · {expense.note}</span>}
-        </div>
-        <div className="entry-sub">
-          <span>{formatDate(expense.date)}</span>
-          {absorbed
-            ? <span className="client-tag general" title="Merged back into a sibling piece">Merged</span>
-            : !expense.billable
-              ? <span className="client-tag general">Overhead</span>
-              : st === 'shelf'
-                ? <span className="client-tag shelf-tag" title="Bought, not attributed to a job yet">On the shelf</span>
-                : <ClientLabel name={clientName} color={clientColor(client)} />}
-          {/* The shared mark: colour answers "can these two snap together?" at a
-              glance, the code settles it when two lineages land on close hues. */}
-          {mark && (
-            <span
-              className="lineage-tag"
-              style={{ '--lineage-hue': mark.hue } as CSSProperties}
-              title={`Cut from one purchase — ${siblings.length} other piece${siblings.length === 1 ? '' : 's'} still around. Drag one onto another to put them back together.`}
-            >◆ {mark.code}</span>
-          )}
-          {partialReceipt && (
-            <span className="partial-tag" title="This receipt covers more than this row — it is shared with the other pieces cut from the same purchase.">
-              part of a shared receipt
+      <div
+        className="xrow-line" role="button" tabIndex={0} aria-expanded={open}
+        onClick={flip}
+        onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); flip() } }}
+      >
+        {/* Drags start here and only here. When the whole row was the grip, a
+            held finger on a phone lifted the item AND started selecting its
+            text at the same time; a handle has one job and no text to select. */}
+        {draggable
+          ? (
+            <span className="drag-handle" aria-label="Drag to move" title="Drag to move"
+              {...dragHandle(expense.id)} onClick={ev => ev.stopPropagation()}>
+              <svg viewBox="0 0 10 16" aria-hidden="true">
+                <circle cx="2.5" cy="3" r="1.4" /><circle cx="7.5" cy="3" r="1.4" />
+                <circle cx="2.5" cy="8" r="1.4" /><circle cx="7.5" cy="8" r="1.4" />
+                <circle cx="2.5" cy="13" r="1.4" /><circle cx="7.5" cy="13" r="1.4" />
+              </svg>
             </span>
-          )}
-          {invoiced && <span className="invoiced-tag" title="On an invoice">{invNum ?? 'invoiced'}</span>}
-          {expense.settled && (
-            <span className="settled-tag" title={expense.settled.note || 'Closed without an invoice'}>
-              {SETTLED_LABELS[expense.settled.how]}
-            </span>
-          )}
-          {m && (st === 'shelf'
-            ? <span className="measure-tag" title={`Costs you ${formatMoney(costPerUnit(expense), cur)} per ${m.unit || 'unit'} — pricing is chosen per job when you assign it`}>
-                {m.qty} of {m.holds} {m.unit} left
-              </span>
-            : <span className="measure-tag" title={`${m.qty} ${m.unit} of ${expense.label || 'this'}`}>
-                {expense.clientLabel || expense.label} × {m.qty}
-              </span>)}
-          {/* Marked-up material that isn't measured says so too, otherwise the
-              only clue that a row bills for more than it cost is the figure. */}
-          {!m && expense.clientId && isPriced(expense) && (
-            <span className="measure-tag" title={`Costs you ${formatMoney(expense.amount, cur)}`}>
-              {expense.clientLabel || expense.label}
-              {expense.markupPct ? ` +${expense.markupPct}%` : ''}
-              {expense.serviceFee ? ` +${formatMoney(expense.serviceFee, cur)} fee` : ''}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="entry-figures">
-        {/* On a client, a measured piece shows what they'll be charged — that is
-            the number the "ready to bill" tile adds up. On the shelf it is still
-            what you paid: nobody owes it yet. */}
-        {expense.clientId && isPriced(expense)
-          ? <span className="entry-dur" title={`Cost you ${formatMoney(expense.amount, cur)}`}>{formatMoney(billedAmount(expense), cur)}</span>
-          : <span className="entry-dur">{formatMoney(expense.amount, cur)}</span>}
-      </div>
-      <div className="entry-actions">
-        {/* Receipts stay available even once invoiced — that is exactly when a
-            client is most likely to ask for proof of a charge. */}
-        <ReceiptControl expense={expense} onUpdate={onUpdate} />
-        {isOpenExpense(expense) && (
-          <>
-            {st === 'shelf' && (
-              <button className="icon-btn" title="Assign to a client" onClick={() => toggle('assign')}>◎</button>
-            )}
-            {/* Splitting is no longer reserved for expenses that already have a
-                client. Material gets cut up BEFORE you know whose job it is far
-                more often than after. Measured material is drawn off by the
-                unit instead, through assign. */}
-            {!m && (
-              <button className="icon-btn"
-                title={st === 'shelf' ? 'Cut this into pieces' : 'Charge only part of this'}
-                onClick={() => toggle('split')}>½</button>
-            )}
-            {/* The escape hatch: closed out without ever being invoiced. */}
-            <button className="icon-btn" title="Settle without invoicing" onClick={() => toggle('settle')}>✓</button>
-          </>
+          )
+          : <span className="drag-handle none" aria-hidden="true" />}
+        <span className="xrow-label">{expense.label || 'Expense'}</span>
+        {/* The shared mark stays on the folded line: matching two pieces up to
+            put them back together should not need both rows opened first. */}
+        {mark && (
+          <span
+            className="lineage-tag"
+            style={{ '--lineage-hue': mark.hue } as CSSProperties}
+            title={`Cut from one purchase — ${siblings.length} other piece${siblings.length === 1 ? '' : 's'} still around. Drag one onto another to put them back together.`}
+          >◆ {mark.code}</span>
         )}
-        {expense.settled && (
-          <button className="icon-btn" title="Reopen — put it back in the list"
-            onClick={() => onSettle(expense.id, null)}>↺</button>
-        )}
-        {!invoiced && <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>}
-        {!invoiced && (
-          confirmDel
-            ? (
-              <button className="btn danger tiny confirm-del" onClick={() => onDelete(expense.id)}
-                onBlur={() => setConfirmDel(false)}>Really delete?</button>
-            ) : (
-              <button className="icon-btn danger" title="Delete"
-                onClick={() => setConfirmDel(true)}>✕</button>
-            )
-        )}
+        {glance}
+        <span className="xrow-amt" title={shown !== expense.amount ? `Cost you ${formatMoney(expense.amount, cur)}` : undefined}>
+          {formatMoney(shown, cur)}
+        </span>
+        <span className="xrow-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
       </div>
 
-      {drawer === 'settle' && (
-        <SettleDrawer
-          expense={expense}
-          onDone={(how, note) => { onSettle(expense.id, how, note); setDrawer(null) }}
-          onCancel={() => setDrawer(null)}
-        />
-      )}
-      {drawer === 'assign' && (
-        <AssignDrawer
-          state={state}
-          expense={expense}
-          cur={cur}
-          onPick={(id, draft) => {
-            onAssignPriced(expense.id, id, m ? draft.qty : null, draft)
-            setDrawer(null)
-          }}
-          onCancel={() => setDrawer(null)}
-        />
-      )}
-      {drawer === 'split' && (
-        <SplitDrawer
-          expense={expense} cur={cur} shelf={st === 'shelf'}
-          onSplit={amount => { onSplit(expense.id, amount); setDrawer(null) }}
-          onSplitEqually={parts => { onSplitEqually(expense.id, parts); setDrawer(null) }}
-          onCancel={() => setDrawer(null)}
-        />
-      )}
-      {st === 'billable' && !drawer && (
-        <div className="row-drawer quiet">
-          <button className="btn ghost tiny" onClick={() => onGoInvoice(expense.clientId ?? undefined)}>
-            Put on an invoice →
-          </button>
+      {open && (
+        <div className="xrow-body">
+          <div className="entry-sub">
+            <span className={`expense-badge tiny ${expense.billable ? 'billable' : 'overhead'}`}>{expense.category}</span>
+            <span>{formatDate(expense.date)}</span>
+            {expense.note && <span className="entry-note">{expense.note}</span>}
+            {st === 'shelf' && !absorbed && (
+              <span className="client-tag shelf-tag" title="Bought, not attributed to a job yet">On the shelf</span>
+            )}
+            {partialReceipt && (
+              <span className="partial-tag" title="This receipt covers more than this row — it is shared with the other pieces cut from the same purchase.">
+                part of a shared receipt
+              </span>
+            )}
+            {expense.settled?.note && <span className="entry-note">{expense.settled.note}</span>}
+            {m && (st === 'shelf'
+              ? (
+                <span className="measure-tag" title="Pricing is chosen per job when you assign it">
+                  {m.qty} of {m.holds} {m.unit} left · {formatMoney(costPerUnit(expense), cur)}/{m.unit || 'unit'}
+                </span>
+              ) : (
+                <span className="measure-tag" title={`${m.qty} ${m.unit} of ${expense.label || 'this'}`}>
+                  {expense.clientLabel || expense.label} × {m.qty}
+                </span>
+              ))}
+            {/* Marked-up material that isn't measured says so too, otherwise the
+                only clue that a row bills for more than it cost is the figure. */}
+            {!m && expense.clientId && isPriced(expense) && (
+              <span className="measure-tag" title={`Costs you ${formatMoney(expense.amount, cur)}`}>
+                {expense.clientLabel || expense.label}
+                {expense.markupPct ? ` +${expense.markupPct}%` : ''}
+                {expense.serviceFee ? ` +${formatMoney(expense.serviceFee, cur)} fee` : ''}
+              </span>
+            )}
+          </div>
+          <div className="entry-actions">
+            {/* Receipts stay available even once invoiced — that is exactly when a
+                client is most likely to ask for proof of a charge. */}
+            <ReceiptControl expense={expense} onUpdate={onUpdate} />
+            {isOpenExpense(expense) && (
+              <>
+                {st === 'shelf' && (
+                  <button className="icon-btn" title="Assign to a client" onClick={() => toggle('assign')}>◎</button>
+                )}
+                {/* Splitting is no longer reserved for expenses that already have a
+                    client. Material gets cut up BEFORE you know whose job it is far
+                    more often than after. Measured material is drawn off by the
+                    unit instead, through assign. */}
+                {!m && (
+                  <button className="icon-btn"
+                    title={st === 'shelf' ? 'Cut this into pieces' : 'Charge only part of this'}
+                    onClick={() => toggle('split')}>½</button>
+                )}
+                {/* The escape hatch: closed out without ever being invoiced. */}
+                <button className="icon-btn" title="Settle without invoicing" onClick={() => toggle('settle')}>✓</button>
+              </>
+            )}
+            {expense.settled && (
+              <button className="icon-btn" title="Reopen — put it back in the list"
+                onClick={() => onSettle(expense.id, null)}>↺</button>
+            )}
+            {!invoiced && <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}>✎</button>}
+            {!invoiced && (
+              confirmDel
+                ? (
+                  <button className="btn danger tiny confirm-del" onClick={() => onDelete(expense.id)}
+                    onBlur={() => setConfirmDel(false)}>Really delete?</button>
+                ) : (
+                  <button className="icon-btn danger" title="Delete"
+                    onClick={() => setConfirmDel(true)}>✕</button>
+                )
+            )}
+          </div>
+
+          {drawer === 'settle' && (
+            <SettleDrawer
+              expense={expense}
+              onDone={(how, note) => { onSettle(expense.id, how, note); setDrawer(null) }}
+              onCancel={() => setDrawer(null)}
+            />
+          )}
+          {drawer === 'assign' && (
+            <AssignDrawer
+              state={state}
+              expense={expense}
+              cur={cur}
+              onPick={(id, draft) => {
+                onAssignPriced(expense.id, id, m ? draft.qty : null, draft)
+                setDrawer(null)
+              }}
+              onCancel={() => setDrawer(null)}
+            />
+          )}
+          {drawer === 'split' && (
+            <SplitDrawer
+              expense={expense} cur={cur} shelf={st === 'shelf'}
+              onSplit={amount => { onSplit(expense.id, amount); setDrawer(null) }}
+              onSplitEqually={parts => { onSplitEqually(expense.id, parts); setDrawer(null) }}
+              onCancel={() => setDrawer(null)}
+            />
+          )}
+          {st === 'billable' && !drawer && (
+            <div className="row-drawer quiet">
+              <button className="btn ghost tiny" onClick={() => onGoInvoice(expense.clientId ?? undefined)}>
+                Put on an invoice →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </li>

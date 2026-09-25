@@ -83,6 +83,15 @@ await page.waitForTimeout(600)
 
 const readState = () => page.evaluate(() => JSON.parse(localStorage.getItem('traction-state')))
 
+/** Expense rows sit folded to one line; their buttons appear once opened. */
+const openRow = async row => {
+  if (!(await row.evaluate(n => n.classList.contains('expanded')))) {
+    await row.locator('.xrow-line').click()
+    await page.waitForTimeout(150)
+  }
+  return row
+}
+
 /**
  * Drag one element onto another using real pointer events.
  *
@@ -99,7 +108,10 @@ const dragOnto = async (from, to) => {
   // the drag. Doing it in the page keeps the geometry self-consistent, and both
   // ends are brought on screen together first — a drop point below the fold
   // resolves to nothing at all.
-  const fh = await from.elementHandle()
+  // Drags start from a row's grip, never from the row itself — the whole row
+  // being the grip is what made a held finger select text on iOS.
+  const grip = from.locator('.drag-handle:not(.none)')
+  const fh = await ((await grip.count()) ? grip.first() : from).elementHandle()
   const th = await to.elementHandle()
   const outcome = await page.evaluate(([f, t]) => {
     // The usable band is what neither the sticky header nor the fixed tab bar
@@ -154,8 +166,8 @@ check('A legacy per-unit price converts to the markup that reproduces it',
   JSON.stringify([legacy.markupPct, legacy.serviceFee, legacy.clientLabel]))
 const mangled = page.locator('.group-shelf li', { hasText: 'Mangled' })
 check('A mangled measure renders as a countable container',
-  (await mangled.locator('.measure-tag').innerText()).includes('0 of 1 scoop left'),
-  await mangled.locator('.measure-tag').innerText())
+  (await mangled.locator('.xrow-line .measure-tag').innerText()).includes('0/1 scoop'),
+  await mangled.locator('.xrow-line .measure-tag').innerText())
 
 // ---- 2. Log a quart of Crossbow, tracked by the fl oz --------------------
 const form = page.locator('.panel', { hasText: 'Log an expense' })
@@ -180,12 +192,17 @@ check('The jug is a full container carrying default terms',
   jug?.clientId === null && jug?.measure?.qty === 32 && jug?.markupPct === 20,
   JSON.stringify([jug?.measure, jug?.markupPct]))
 const jugRow = page.locator('.group-shelf li', { hasText: 'Crossbow' })
-check('The shelf row says how much is left',
-  (await jugRow.locator('.measure-tag').innerText()).includes('32 of 32 fl oz left'))
-check('A measured row offers no money split', (await jugRow.locator('.icon-btn', { hasText: '.' }).count()) === 0)
+check('The folded shelf row says how much is left, at a glance',
+  (await jugRow.locator('.xrow-line .measure-tag').innerText()).includes('32/32 fl oz'))
+await openRow(jugRow)
+check('Opened, it spells it out',
+  (await jugRow.locator('.xrow-body .measure-tag').innerText()).includes('32 of 32 fl oz left'))
+// Checked with the row OPEN — folded, every row hides its buttons, and the
+// check would pass without proving anything.
+check('A measured row offers no money split', (await jugRow.locator('.icon-btn', { hasText: '½' }).count()) === 0)
 
 // ---- 3. Draw 2 fl oz for Patrick, priced for this job --------------------
-await jugRow.locator('.icon-btn[title="Assign to a client"]').click()
+await (await openRow(jugRow)).locator('.icon-btn[title="Assign to a client"]').click()
 await page.waitForTimeout(200)
 const assign = jugRow.locator('.measure-assign')
 const qtyBox = assign.locator('input[type="number"]').first()
@@ -222,7 +239,7 @@ check('Ready to bill counts what the client is charged, not the cost',
 
 // ---- 4. The no-fee path: blades billed per unit --------------------------
 const bladeRow = page.locator('.group-shelf li', { hasText: 'Pruning blades' })
-await bladeRow.locator('.icon-btn[title="Assign to a client"]').click()
+await (await openRow(bladeRow)).locator('.icon-btn[title="Assign to a client"]').click()
 await page.waitForTimeout(200)
 await bladeRow.locator('.measure-assign input[type="number"]').first().fill('2')
 await page.waitForTimeout(150)
@@ -281,7 +298,7 @@ check('Income adds both on top of labour', profit.includes('$71.32'),
 await page.locator('.tab', { hasText: 'Expenses' }).click()
 await page.waitForTimeout(500)
 const zinc = page.locator('.group-shelf li', { hasText: 'Zinc bucket' })
-await zinc.locator('.icon-btn[title="Edit"]').click()
+await (await openRow(zinc)).locator('.icon-btn[title="Edit"]').click()
 await page.waitForTimeout(300)
 const ed = page.locator('.entry-row.editing')
 await ed.locator('.check-field input').check()
